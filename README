@@ -1,0 +1,6 @@
+ErlDokan -- Erlang binding for Dokan
+
+Dokan (http://dokan-dev.net/en/) is a user mode file system library for
+Windows. This Erlang application provides the bindings to create a user mode
+file system with Erlang using Dokan.
+
