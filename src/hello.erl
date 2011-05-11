@@ -18,7 +18,8 @@
 -module(hello).
 -include("erldokan.hrl").
 
--export([create_file/8, open_directory/4, find_files/4, create_directory/4]).
+-export([create_file/8, open_directory/4, find_files/4, create_directory/4,
+         get_file_information/4]).
 -export([init/1, handle_info/2, terminate/2, code_change/3]).
 
 -record(state, {vnodes}).
@@ -120,6 +121,24 @@ find_files(#state{vnodes=VNodes} = S, _From, Path, _FI) ->
 				DirEntries),
 			{reply, List, S};
 
+		_ ->
+			{reply, {error, -2}, S}
+	end.
+
+
+get_file_information(S, _From, FileName, _FI) ->
+	case lookup(FileName, S) of
+		#file{data=Data} ->
+			Attr = #dokan_reply_fi{
+				file_attributes = ?FILE_ATTRIBUTE_READONLY,
+				file_size = size(Data)
+			},
+			{reply, Attr, S};
+		#dir{} ->
+			Attr = #dokan_reply_fi{
+				file_attributes = ?FILE_ATTRIBUTE_DIRECTORY
+			},
+			{reply, Attr, S};
 		_ ->
 			{reply, {error, -2}, S}
 	end.

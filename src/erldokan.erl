@@ -44,10 +44,11 @@ behaviour_info(_Other) ->
 
 behaviour_info_dokan_cb() ->
 	[
+	{create_directory, 4},
 	{create_file, 8},
 	{find_files, 4},
+	{get_file_information, 4},
 	{open_directory, 4},
-	{create_directory, 4},
 
 	%% TODO...
 	{cleanup, 0},
@@ -57,7 +58,6 @@ behaviour_info_dokan_cb() ->
 	{find_files_with_pattern, 0},
 	{flush_file_buffers, 0},
 	{get_disk_free_space, 0},
-	{get_file_information, 0},
 	{get_volume_information, 0},
 	{lock_file, 0},
 	{move_file, 0},

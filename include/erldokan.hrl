@@ -117,10 +117,10 @@
 	creation_time = 0,
 	last_access_time = 0,
 	last_write_time = 0,
-	volume_serial_number,
-	file_size,
-	number_of_links,
-	file_index
+	volume_serial_number = 0,
+	file_size = 0,
+	number_of_links = 1,
+	file_index = 0
 }).
 
 -record(dokan_reply_find, {

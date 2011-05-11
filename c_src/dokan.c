@@ -819,6 +819,98 @@ out:
 	return ret;
 }
 
+#define REPLY_FILE_INFO "dokan_reply_fi"
+
+/*
+ * #dokan_reply_fi{} | {error, ErrNo}
+ */
+static int ParseFileInfoResponse(struct parse_state *ps,
+                                 LPBY_HANDLE_FILE_INFORMATION fileInfo)
+{
+	char tag[sizeof(REPLY_FILE_INFO)];
+	int size, ret, type;
+	unsigned long long tmp;
+
+	if (ei_decode_tuple_header(ps->buf, &ps->index, &size))
+		goto fail;
+	if (size != 9)
+		goto fail;
+
+	CHECK(ei_get_type(ps->buf, &ps->index, &type, &size));
+	CHECK(type != ERL_ATOM_EXT || size != sizeof(REPLY_FILE_INFO)-1);
+	CHECK(ei_decode_atom(ps->buf, &ps->index, tag));
+	CHECK(strcmp(tag, REPLY_FILE_INFO));
+
+	CHECK(ei_decode_ulong(ps->buf, &ps->index, &fileInfo->dwFileAttributes));
+
+	CHECK(ei_decode_ulonglong(ps->buf, &ps->index, &tmp));
+	fileInfo->ftCreationTime.dwLowDateTime = tmp;
+	fileInfo->ftCreationTime.dwHighDateTime = tmp >> 32;
+	CHECK(ei_decode_ulonglong(ps->buf, &ps->index, &tmp));
+	fileInfo->ftLastAccessTime.dwLowDateTime = tmp;
+	fileInfo->ftLastAccessTime.dwHighDateTime = tmp >> 32;
+	CHECK(ei_decode_ulonglong(ps->buf, &ps->index, &tmp));
+	fileInfo->ftLastWriteTime.dwLowDateTime = tmp;
+	fileInfo->ftLastWriteTime.dwHighDateTime = tmp >> 32;
+
+	CHECK(ei_decode_ulong(ps->buf, &ps->index, &fileInfo->dwVolumeSerialNumber));
+
+	CHECK(ei_decode_ulonglong(ps->buf, &ps->index, &tmp));
+	fileInfo->nFileSizeLow = tmp;
+	fileInfo->nFileSizeHigh = tmp >> 32;
+
+	CHECK(ei_decode_ulong(ps->buf, &ps->index, &fileInfo->nNumberOfLinks));
+
+	CHECK(ei_decode_ulonglong(ps->buf, &ps->index, &tmp));
+	fileInfo->nFileIndexLow = tmp;
+	fileInfo->nFileIndexHigh = tmp >> 32;
+
+	return 0;
+
+fail:
+	RewindParser(ps);
+	ret = ParseGenericResponse(ps);
+	CHECK(ret >= 0);
+	return ret;
+
+badarg:
+	Abort(ps->drv);
+	return -ERROR_GEN_FAILURE;
+}
+
+static int __stdcall
+ReqGetFileInformation(LPCWSTR fileName,
+                      LPBY_HANDLE_FILE_INFORMATION fileInformation,
+                      PDOKAN_FILE_INFO fileInfo)
+{
+	struct self *self = FromFileInfo(fileInfo);
+	struct indication *ind;
+	struct parse_state ps;
+	int ret;
+
+	ind = AllocIndication(self, ATOM_GET_FILE_INFORMATION);
+	if (!ind)
+		return -ERROR_OUTOFMEMORY;
+
+	/* fill indication */
+	IndAddString(ind, fileName);
+	IndAddFileInfo(ind, fileInfo);
+	IndAddDone(ind);
+
+	if ((ret = SendIndication(self, ind)))
+		goto out;
+
+	/* parse response */
+	ret = InitParser(self, &ps, ind);
+	if (ret)
+		goto out;
+	ret = ParseFileInfoResponse(&ps, fileInformation);
+
+out:
+	FreeIndication(self, ind);
+	return ret;
+}
+
 static int ReplyOk(char **rbuf, int rlen)
 {
 	int i = 0;
@@ -976,6 +1068,7 @@ static int Mount(struct self *self, char *buf, int len, char **rbuf, int rlen)
 		SUPPORTED_OP("find_files", FindFiles, ReqFindFiles);
 		SUPPORTED_OP("open_directory", OpenDirectory, ReqOpenDirectory);
 		SUPPORTED_OP("create_directory", CreateDirectory, ReqCreateDirectory);
+		SUPPORTED_OP("get_file_information", GetFileInformation, ReqGetFileInformation);
 	}
 
 	/* Parse the list tail (but not in case of empty list) */
