@@ -47,11 +47,11 @@ behaviour_info_dokan_cb() ->
 	{create_file, 8},
 	{find_files, 4},
 	{open_directory, 4},
+	{create_directory, 4},
 
 	%% TODO...
 	{cleanup, 0},
 	{close_file, 0},
-	{create_directory, 0},
 	{delete_directory, 0},
 	{delete_file, 0},
 	{find_files_with_pattern, 0},

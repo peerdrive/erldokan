@@ -544,6 +544,25 @@ badarg:
 	return -ERROR_GEN_FAILURE;
 }
 
+static int ParseUndefined(struct parse_state *ps)
+{
+	char tag[sizeof("undefined")];
+	int type, size;
+
+	if (ei_get_type(ps->buf, &ps->index, &type, &size))
+		return -1;
+	if (type !=  ERL_ATOM_EXT)
+		return -1;
+	if (size != sizeof("undefined")-1)
+		return -1;
+	if (ei_decode_atom(ps->buf, &ps->index, tag))
+		return -1;
+	if (strcmp(tag, "undefined"))
+		return -1;
+
+	return 0;
+}
+
 #define REPLY_OPEN_TAG "dokan_reply_open"
 
 /*
@@ -564,8 +583,10 @@ static int ParseOpenResponse(struct parse_state *ps, ULONG64 *ctx, UCHAR *isDir)
 	CHECK(ei_decode_atom(ps->buf, &ps->index, tag));
 	if (strcmp(tag, REPLY_OPEN_TAG))
 		goto fail;
-	CHECK(ei_decode_ulonglong(ps->buf, &ps->index, ctx));
-	CHECK(ei_decode_boolean(ps->buf, &ps->index, &ret));
+	if (ei_decode_ulonglong(ps->buf, &ps->index, ctx))
+		CHECK(ParseUndefined(ps));
+	if (ei_decode_boolean(ps->buf, &ps->index, &ret))
+		CHECK(ParseUndefined(ps));
 	*isDir = ret;
 
 	return 0;
@@ -626,6 +647,37 @@ ReqOpenDirectory(LPCWSTR fileName, PDOKAN_FILE_INFO fileInfo)
 	int ret;
 
 	ind = AllocIndication(self, ATOM_OPEN_DIRECTORY);
+	if (!ind)
+		return -ERROR_OUTOFMEMORY;
+
+	/* fill indication */
+	IndAddString(ind, fileName);
+	IndAddFileInfo(ind, fileInfo);
+	IndAddDone(ind);
+
+	if ((ret = SendIndication(self, ind)))
+		goto out;
+
+	/* parse response */
+	ret = InitParser(self, &ps, ind);
+	if (ret)
+		goto out;
+	ret = ParseOpenResponse(&ps, &fileInfo->Context, &fileInfo->IsDirectory);
+
+out:
+	FreeIndication(self, ind);
+	return ret;
+}
+
+static int __stdcall
+ReqCreateDirectory(LPCWSTR fileName, PDOKAN_FILE_INFO fileInfo)
+{
+	struct self *self = FromFileInfo(fileInfo);
+	struct indication *ind;
+	struct parse_state ps;
+	int ret;
+
+	ind = AllocIndication(self, ATOM_CREATE_DIRECTORY);
 	if (!ind)
 		return -ERROR_OUTOFMEMORY;
 
@@ -714,8 +766,6 @@ static int ParseFFResponse(struct parse_state *ps, PFillFindData fillFindData,
 
 		fillFindData(&findData, fileInfo);
 	}
-
-	driver_free(buf);
 
 	/* Parse tail of list (but not if list was empty) */
 	if (length > 0)
@@ -925,6 +975,7 @@ static int Mount(struct self *self, char *buf, int len, char **rbuf, int rlen)
 		SUPPORTED_OP("create_file", CreateFile, ReqCreateFile);
 		SUPPORTED_OP("find_files", FindFiles, ReqFindFiles);
 		SUPPORTED_OP("open_directory", OpenDirectory, ReqOpenDirectory);
+		SUPPORTED_OP("create_directory", CreateDirectory, ReqCreateDirectory);
 	}
 
 	/* Parse the list tail (but not in case of empty list) */
