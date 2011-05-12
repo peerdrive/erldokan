@@ -44,15 +44,16 @@ behaviour_info(_Other) ->
 
 behaviour_info_dokan_cb() ->
 	[
+	{cleanup, 4},
+	{close_file, 4},
 	{create_directory, 4},
 	{create_file, 8},
 	{find_files, 4},
 	{get_file_information, 4},
 	{open_directory, 4},
+	{read_file, 6},
 
 	%% TODO...
-	{cleanup, 0},
-	{close_file, 0},
 	{delete_directory, 0},
 	{delete_file, 0},
 	{find_files_with_pattern, 0},
@@ -61,7 +62,6 @@ behaviour_info_dokan_cb() ->
 	{get_volume_information, 0},
 	{lock_file, 0},
 	{move_file, 0},
-	{read_file, 0},
 	{set_allocation_size, 0},
 	{set_end_of_file, 0},
 	{set_file_attributes, 0},

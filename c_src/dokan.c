@@ -359,6 +359,12 @@ static void IndAddUInt(struct indication *ind, ErlDrvUInt data)
 	ind->ind_args++;
 }
 
+static void IndAddInt64(struct indication *ind, LONGLONG *num)
+{
+	IND_ADD_ARG1(ind, ERL_DRV_INT64, num);
+	ind->ind_args++;
+}
+
 static void IndAddFileInfo(struct indication *ind, PDOKAN_FILE_INFO fileInfo)
 {
 	IND_ADD_ARG1(ind, ERL_DRV_ATOM, atom_table[ATOM_DOKAN_FILE_INFO]);
@@ -911,6 +917,126 @@ out:
 	return ret;
 }
 
+static int __stdcall
+ReqCleanup(LPCWSTR fileName, PDOKAN_FILE_INFO fileInfo)
+{
+	struct self *self = FromFileInfo(fileInfo);
+	struct indication *ind;
+	struct parse_state ps;
+	int ret;
+
+	ind = AllocIndication(self, ATOM_CLEANUP);
+	if (!ind)
+		return -ERROR_OUTOFMEMORY;
+
+	/* fill indication */
+	IndAddString(ind, fileName);
+	IndAddFileInfo(ind, fileInfo);
+	IndAddDone(ind);
+
+	if ((ret = SendIndication(self, ind)))
+		goto out;
+
+	/* parse response */
+	ret = InitParser(self, &ps, ind);
+	if (ret)
+		goto out;
+	ret = ParseGenericResponse(&ps);
+
+out:
+	FreeIndication(self, ind);
+	return ret;
+}
+
+static int __stdcall
+ReqCloseFile(LPCWSTR fileName, PDOKAN_FILE_INFO fileInfo)
+{
+	struct self *self = FromFileInfo(fileInfo);
+	struct indication *ind;
+	struct parse_state ps;
+	int ret;
+
+	ind = AllocIndication(self, ATOM_CLOSE_FILE);
+	if (!ind)
+		return -ERROR_OUTOFMEMORY;
+
+	/* fill indication */
+	IndAddString(ind, fileName);
+	IndAddFileInfo(ind, fileInfo);
+	IndAddDone(ind);
+
+	if ((ret = SendIndication(self, ind)))
+		goto out;
+
+	/* parse response */
+	ret = InitParser(self, &ps, ind);
+	if (ret)
+		goto out;
+	ret = ParseGenericResponse(&ps);
+
+out:
+	FreeIndication(self, ind);
+	return ret;
+}
+
+static int ParseReadResponse(struct self *self, struct indication *ind,
+                             void *buffer, DWORD bufferLength, LPDWORD readLength)
+{
+	struct parse_state ps;
+	char *base;
+	size_t size;
+	int ret;
+
+	/* First check status */
+	if ((ret = InitParser(self, &ps, ind)))
+		return ret;
+	if ((ret = ParseGenericResponse(&ps)))
+		return ret;
+
+	/* Looks good. Get the data... */
+	if (IOVecGetOffset(&ind->resp, 4, &base, &size))
+		return -ERROR_GEN_FAILURE;
+	if (IOVecGetOffset(&ind->resp, 8 + *((uint32_t *)base), &base, &size))
+		return -ERROR_GEN_FAILURE;
+
+	if (bufferLength < size)
+		size = bufferLength; /* Or reject? */
+
+	memcpy(buffer, base, size);
+	*readLength = size;
+	return 0;
+}
+
+static int __stdcall
+ReqReadFile(LPCWSTR fileName, LPVOID buffer, DWORD bufferLength,
+            LPDWORD readLength, LONGLONG offset, PDOKAN_FILE_INFO fileInfo)
+{
+	struct self *self = FromFileInfo(fileInfo);
+	struct indication *ind;
+	int ret;
+
+	ind = AllocIndication(self, ATOM_READ_FILE);
+	if (!ind)
+		return -ERROR_OUTOFMEMORY;
+
+	/* fill indication */
+	IndAddString(ind, fileName);
+	IndAddUInt(ind, bufferLength);
+	IndAddInt64(ind, &offset);
+	IndAddFileInfo(ind, fileInfo);
+	IndAddDone(ind);
+
+	if ((ret = SendIndication(self, ind)))
+		goto out;
+
+	/* parse response */
+	ret = ParseReadResponse(self, ind, buffer, bufferLength, readLength);
+
+out:
+	FreeIndication(self, ind);
+	return ret;
+}
+
 static int ReplyOk(char **rbuf, int rlen)
 {
 	int i = 0;
@@ -1069,6 +1195,9 @@ static int Mount(struct self *self, char *buf, int len, char **rbuf, int rlen)
 		SUPPORTED_OP("open_directory", OpenDirectory, ReqOpenDirectory);
 		SUPPORTED_OP("create_directory", CreateDirectory, ReqCreateDirectory);
 		SUPPORTED_OP("get_file_information", GetFileInformation, ReqGetFileInformation);
+		SUPPORTED_OP("cleanup", Cleanup, ReqCleanup);
+		SUPPORTED_OP("close_file", CloseFile, ReqCloseFile);
+		SUPPORTED_OP("read_file", ReadFile, ReqReadFile);
 	}
 
 	/* Parse the list tail (but not in case of empty list) */

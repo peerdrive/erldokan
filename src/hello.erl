@@ -19,7 +19,7 @@
 -include("erldokan.hrl").
 
 -export([create_file/8, open_directory/4, find_files/4, create_directory/4,
-         get_file_information/4]).
+         get_file_information/4, read_file/6]).
 -export([init/1, handle_info/2, terminate/2, code_change/3]).
 
 -record(state, {vnodes}).
@@ -139,6 +139,24 @@ get_file_information(S, _From, FileName, _FI) ->
 				file_attributes = ?FILE_ATTRIBUTE_DIRECTORY
 			},
 			{reply, Attr, S};
+		_ ->
+			{reply, {error, -2}, S}
+	end.
+
+
+read_file(S, _From, FileName, Length, Offset, _FI) ->
+	case lookup(FileName, S) of
+		#file{data=Data} ->
+			Size = size(Data),
+			InOffset = if
+				Offset >= Size -> Size;
+				true -> Offset
+			end,
+			InLength = if
+				InOffset+Length > Size -> Size-InOffset;
+				true -> Length
+			end,
+			{reply, binary:part(Data, InOffset, InLength), S};
 		_ ->
 			{reply, {error, -2}, S}
 	end.
