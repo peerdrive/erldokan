@@ -832,6 +832,39 @@ out:
 	return ret;
 }
 
+static int __stdcall
+ReqFindFilesWithPattern(LPCWSTR fileName, LPCWSTR searchPattern,
+                        PFillFindData fillFindData, PDOKAN_FILE_INFO fileInfo)
+{
+	struct self *self = FromFileInfo(fileInfo);
+	struct indication *ind;
+	struct parse_state ps;
+	int ret;
+
+	ind = AllocIndication(self, ATOM_FIND_FILES_WITH_PATTERN);
+	if (!ind)
+		return -ERROR_OUTOFMEMORY;
+
+	/* fill indication */
+	IndAddString(ind, fileName);
+	IndAddString(ind, searchPattern);
+	IndAddFileInfo(ind, fileInfo);
+	IndAddDone(ind);
+
+	if ((ret = SendIndication(self, ind)))
+		goto out;
+
+	/* parse response */
+	ret = InitParser(self, &ps, ind);
+	if (ret)
+		goto out;
+	ret = ParseFFResponse(&ps, fillFindData, fileInfo);
+
+out:
+	FreeIndication(self, ind);
+	return ret;
+}
+
 #define REPLY_FILE_INFO "dokan_reply_fi"
 
 /*
@@ -1294,6 +1327,7 @@ static int Mount(struct self *self, char *buf, int len, char **rbuf, int rlen)
 
 		SUPPORTED_OP("create_file", CreateFile, ReqCreateFile);
 		SUPPORTED_OP("find_files", FindFiles, ReqFindFiles);
+		SUPPORTED_OP("find_files_with_pattern", FindFilesWithPattern, ReqFindFilesWithPattern);
 		SUPPORTED_OP("open_directory", OpenDirectory, ReqOpenDirectory);
 		SUPPORTED_OP("create_directory", CreateDirectory, ReqCreateDirectory);
 		SUPPORTED_OP("get_file_information", GetFileInformation, ReqGetFileInformation);
