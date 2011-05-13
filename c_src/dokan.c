@@ -365,6 +365,13 @@ static void IndAddInt64(struct indication *ind, LONGLONG *num)
 	ind->ind_args++;
 }
 
+static void IndAddBuffer(struct indication *ind, const void *buffer,
+                         unsigned long size)
+{
+	IND_ADD_ARG2(ind, ERL_DRV_BUF2BINARY, (ErlDrvTermData)buffer, size);
+	ind->ind_args++;
+}
+
 static void IndAddFileInfo(struct indication *ind, PDOKAN_FILE_INFO fileInfo)
 {
 	IND_ADD_ARG1(ind, ERL_DRV_ATOM, atom_table[ATOM_DOKAN_FILE_INFO]);
@@ -1037,6 +1044,70 @@ out:
 	return ret;
 }
 
+/*
+ * {ok, BytesWritten} | {error, ErrNo}
+ */
+static int ParseWriteResponse(struct parse_state *ps, LPDWORD bytesWritten)
+{
+	int type, size;
+	char tag[6];
+
+	CHECK(ei_decode_tuple_header(ps->buf, &ps->index, &size));
+	CHECK(size != 2);
+	CHECK(ei_get_type(ps->buf, &ps->index, &type, &size));
+	CHECK(type != ERL_ATOM_EXT || size > sizeof(tag)-1);
+	CHECK(ei_decode_atom(ps->buf, &ps->index, tag));
+
+	if (!strcmp(tag, "ok")) {
+		CHECK(ei_decode_ulong(ps->buf, &ps->index, bytesWritten));
+		return 0;
+	} else if (!strcmp(tag, "error")) {
+		long ret;
+		CHECK(ei_decode_long(ps->buf, &ps->index, &ret));
+		return ret;
+	}
+
+badarg:
+	Abort(ps->drv);
+	return -ERROR_GEN_FAILURE;
+}
+
+static int __stdcall
+ReqWriteFile(LPCWSTR fileName, LPCVOID buffer, DWORD bytesToWrite,
+             LPDWORD bytesWritten, LONGLONG offset, PDOKAN_FILE_INFO fileInfo)
+{
+	struct self *self = FromFileInfo(fileInfo);
+	struct indication *ind;
+	struct parse_state ps;
+	int ret;
+
+	*bytesWritten = 0; /* nothing written yet */
+
+	ind = AllocIndication(self, ATOM_WRITE_FILE);
+	if (!ind)
+		return -ERROR_OUTOFMEMORY;
+
+	/* fill indication */
+	IndAddString(ind, fileName);
+	IndAddBuffer(ind, buffer, bytesToWrite);
+	IndAddInt64(ind, &offset);
+	IndAddFileInfo(ind, fileInfo);
+	IndAddDone(ind);
+
+	if ((ret = SendIndication(self, ind)))
+		goto out;
+
+	/* parse response */
+	ret = InitParser(self, &ps, ind);
+	if (ret)
+		goto out;
+	ret = ParseWriteResponse(&ps, bytesWritten);
+
+out:
+	FreeIndication(self, ind);
+	return ret;
+}
+
 static int ReplyOk(char **rbuf, int rlen)
 {
 	int i = 0;
@@ -1198,6 +1269,7 @@ static int Mount(struct self *self, char *buf, int len, char **rbuf, int rlen)
 		SUPPORTED_OP("cleanup", Cleanup, ReqCleanup);
 		SUPPORTED_OP("close_file", CloseFile, ReqCloseFile);
 		SUPPORTED_OP("read_file", ReadFile, ReqReadFile);
+		SUPPORTED_OP("write_file", WriteFile, ReqWriteFile);
 	}
 
 	/* Parse the list tail (but not in case of empty list) */

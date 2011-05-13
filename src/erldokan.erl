@@ -52,6 +52,7 @@ behaviour_info_dokan_cb() ->
 	{get_file_information, 4},
 	{open_directory, 4},
 	{read_file, 6},
+	{write_file, 6},
 
 	%% TODO...
 	{delete_directory, 0},
@@ -67,8 +68,7 @@ behaviour_info_dokan_cb() ->
 	{set_file_attributes, 0},
 	{set_file_time, 0},
 	{unlock_file, 0},
-	{unmount, 0},
-	{write_file, 0}
+	{unmount, 0}
 	].
 
 

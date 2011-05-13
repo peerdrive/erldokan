@@ -19,7 +19,7 @@
 -include("erldokan.hrl").
 
 -export([create_file/8, open_directory/4, find_files/4, create_directory/4,
-         get_file_information/4, read_file/6]).
+         get_file_information/4, read_file/6, write_file/6]).
 -export([init/1, handle_info/2, terminate/2, code_change/3]).
 
 -record(state, {vnodes}).
@@ -160,6 +160,47 @@ read_file(S, _From, FileName, Length, Offset, _FI) ->
 		_ ->
 			{reply, {error, -2}, S}
 	end.
+
+
+write_file(#state{vnodes=VNodes} = S, _From, FileName, Data, Offset, FI) ->
+	case walk(FileName, S) of
+		Ino when is_integer(Ino) ->
+			case gb_trees:get(Ino, VNodes) of
+				#file{data=OldData} = File ->
+					NewData = case FI#dokan_file_info.write_to_eof of
+						false ->
+							do_write(OldData, Data, Offset);
+						true ->
+							<<OldData/binary, Data/binary>>
+					end,
+					NewFile = File#file{data=NewData},
+					S2 = S#state{vnodes=gb_trees:update(Ino, NewFile, VNodes)},
+					{reply, {ok, size(Data)}, S2};
+
+				_ ->
+					{reply, {error, -2}, S}
+			end;
+
+		_ ->
+			{reply, {error, -2}, S}
+	end.
+
+
+do_write(OldData, Data, Offset) ->
+	OldSize = size(OldData),
+	Length = size(Data),
+	Prefix = if
+		Offset <  OldSize -> binary:part(OldData, 0, Offset);
+		Offset == OldSize -> OldData;
+		Offset >  OldSize -> <<OldData/binary, 0:((Offset-OldSize)*8)>>
+	end,
+	Postfix = if
+		Offset+Length < OldSize ->
+			binary:part(OldData, Offset+Length, OldSize-Offset-Length);
+		true ->
+			<<>>
+	end,
+	<<Prefix/binary, Data/binary, Postfix/binary>>.
 
 
 lookup(BinName, #state{vnodes=VNodes} = S) ->
