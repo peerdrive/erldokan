@@ -19,18 +19,19 @@
 -include("erldokan.hrl").
 
 -export([create_file/8, open_directory/4, find_files/4, create_directory/4,
-         get_file_information/4, read_file/6, write_file/6]).
+         get_file_information/4, read_file/6, write_file/6, delete_file/4,
+         delete_directory/4, close_file/4]).
 -export([init/1, handle_info/2, terminate/2, code_change/3]).
 
 -record(state, {vnodes}).
--record(file, {data}).
--record(dir, {listing}).
+-record(file, {data, parent, deleted=false}).
+-record(dir, {listing, parent, deleted=false}).
 
 init(_Args) ->
 	State = #state{
 		vnodes=gb_trees:from_orddict([
 			{0, #dir{listing=[{"text.txt", 1}]}},
-			{1, #file{data= <<"Hello World...">>}}])
+			{1, #file{data= <<"Hello World...">>, parent=0}}])
 	},
 	{ok, State}.
 
@@ -92,6 +93,29 @@ add_dir_entry(DirIno, Ino, Name, VNodes) ->
 	Dir = #dir{listing=List} = gb_trees:get(DirIno, VNodes),
 	NewList = orddict:store(Name, Ino, List),
 	gb_trees:update(DirIno, Dir#dir{listing=NewList}, VNodes).
+
+
+close_file(#state{vnodes=VNodes} = S, _From, FileName, FI) ->
+	case FI#dokan_file_info.delete_on_close of
+		true ->
+			Ino = walk(FileName, S),
+			Parent = case gb_trees:get(Ino, VNodes) of
+				#file{parent=P} -> P;
+				#dir{parent=P} -> P
+			end,
+			NewVNodes = del_dir_entry(Parent, Ino, VNodes),
+			{reply, ok, S#state{vnodes=NewVNodes}};
+
+		false ->
+			{reply, ok, S}
+	end.
+
+
+del_dir_entry(DirIno, Ino, VNodes) ->
+	Dir = #dir{listing=Listing} = gb_trees:get(DirIno, VNodes),
+	NewListing = orddict:filter(fun(_Name, Child) -> Child =/= Ino end, Listing),
+	NewVNodes = gb_trees:update(DirIno, Dir#dir{listing=NewListing}, VNodes),
+	gb_trees:delete(Ino, NewVNodes).
 
 
 find_files(#state{vnodes=VNodes} = S, _From, Path, _FI) ->
@@ -201,6 +225,40 @@ do_write(OldData, Data, Offset) ->
 			<<>>
 	end,
 	<<Prefix/binary, Data/binary, Postfix/binary>>.
+
+
+delete_file(#state{vnodes=VNodes} = S, _From, FileName, _FI) ->
+	case walk(FileName, S) of
+		Ino when is_integer(Ino) ->
+			case gb_trees:get(Ino, VNodes) of
+				#file{} = File ->
+					NewFile = File#file{deleted=true},
+					{reply, ok, S#state{vnodes=gb_trees:update(Ino, NewFile, VNodes)}};
+				#dir{} ->
+					{reply, {error, -5}, S}
+			end;
+
+		_ ->
+			{reply, {error, -2}, S}
+	end.
+
+
+delete_directory(#state{vnodes=VNodes} = S, _From, FileName, _FI) ->
+	case walk(FileName, S) of
+		Ino when is_integer(Ino) ->
+			case gb_trees:get(Ino, VNodes) of
+				#dir{listing=Listing} = Dir when Listing == [] ->
+					NewDir = Dir#dir{deleted=true},
+					{reply, ok, S#state{vnodes=gb_trees:update(Ino, NewDir, VNodes)}};
+				#dir{} ->
+					{reply, {error, -145}, S};
+				#file{} ->
+					{reply, {error, -5}, S}
+			end;
+
+		_ ->
+			{reply, {error, -2}, S}
+	end.
 
 
 lookup(BinName, #state{vnodes=VNodes} = S) ->

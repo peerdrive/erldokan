@@ -1172,6 +1172,68 @@ out:
 	return ret;
 }
 
+static int __stdcall
+ReqDeleteFile(LPCWSTR fileName, PDOKAN_FILE_INFO fileInfo)
+{
+	struct self *self = FromFileInfo(fileInfo);
+	struct indication *ind;
+	struct parse_state ps;
+	int ret;
+
+	ind = AllocIndication(self, ATOM_DELETE_FILE);
+	if (!ind)
+		return -ERROR_OUTOFMEMORY;
+
+	/* fill indication */
+	IndAddString(ind, fileName);
+	IndAddFileInfo(ind, fileInfo);
+	IndAddDone(ind);
+
+	if ((ret = SendIndication(self, ind)))
+		goto out;
+
+	/* parse response */
+	ret = InitParser(self, &ps, ind);
+	if (ret)
+		goto out;
+	ret = ParseGenericResponse(&ps);
+
+out:
+	FreeIndication(self, ind);
+	return ret;
+}
+
+static int __stdcall
+ReqDeleteDirectory(LPCWSTR fileName, PDOKAN_FILE_INFO fileInfo)
+{
+	struct self *self = FromFileInfo(fileInfo);
+	struct indication *ind;
+	struct parse_state ps;
+	int ret;
+
+	ind = AllocIndication(self, ATOM_DELETE_DIRECTORY);
+	if (!ind)
+		return -ERROR_OUTOFMEMORY;
+
+	/* fill indication */
+	IndAddString(ind, fileName);
+	IndAddFileInfo(ind, fileInfo);
+	IndAddDone(ind);
+
+	if ((ret = SendIndication(self, ind)))
+		goto out;
+
+	/* parse response */
+	ret = InitParser(self, &ps, ind);
+	if (ret)
+		goto out;
+	ret = ParseGenericResponse(&ps);
+
+out:
+	FreeIndication(self, ind);
+	return ret;
+}
+
 static int ReplyOk(char **rbuf, int rlen)
 {
 	int i = 0;
@@ -1325,17 +1387,19 @@ static int Mount(struct self *self, char *buf, int len, char **rbuf, int rlen)
 		if (ei_decode_atom(buf, &index, atom))
 			goto badarg;
 
-		SUPPORTED_OP("create_file", CreateFile, ReqCreateFile);
-		SUPPORTED_OP("find_files", FindFiles, ReqFindFiles);
-		SUPPORTED_OP("find_files_with_pattern", FindFilesWithPattern, ReqFindFilesWithPattern);
-		SUPPORTED_OP("open_directory", OpenDirectory, ReqOpenDirectory);
-		SUPPORTED_OP("create_directory", CreateDirectory, ReqCreateDirectory);
-		SUPPORTED_OP("get_file_information", GetFileInformation, ReqGetFileInformation);
 		SUPPORTED_OP("cleanup", Cleanup, ReqCleanup);
 		SUPPORTED_OP("close_file", CloseFile, ReqCloseFile);
+		SUPPORTED_OP("create_directory", CreateDirectory, ReqCreateDirectory);
+		SUPPORTED_OP("create_file", CreateFile, ReqCreateFile);
+		SUPPORTED_OP("delete_file", DeleteFile, ReqDeleteFile);
+		SUPPORTED_OP("delete_directory", DeleteDirectory, ReqDeleteDirectory);
+		SUPPORTED_OP("find_files", FindFiles, ReqFindFiles);
+		SUPPORTED_OP("find_files_with_pattern", FindFilesWithPattern, ReqFindFilesWithPattern);
+		SUPPORTED_OP("flush_file_buffers", FlushFileBuffers, ReqFlushFileBuffers);
+		SUPPORTED_OP("get_file_information", GetFileInformation, ReqGetFileInformation);
+		SUPPORTED_OP("open_directory", OpenDirectory, ReqOpenDirectory);
 		SUPPORTED_OP("read_file", ReadFile, ReqReadFile);
 		SUPPORTED_OP("write_file", WriteFile, ReqWriteFile);
-		SUPPORTED_OP("flush_file_buffers", FlushFileBuffers, ReqFlushFileBuffers);
 	}
 
 	/* Parse the list tail (but not in case of empty list) */
