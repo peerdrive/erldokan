@@ -54,6 +54,7 @@ behaviour_info_dokan_cb() ->
 	{find_files_with_pattern, 5},
 	{flush_file_buffers, 4},
 	{get_file_information, 4},
+	{move_file, 6},
 	{open_directory, 4},
 	{read_file, 6},
 	{write_file, 6},
@@ -62,7 +63,6 @@ behaviour_info_dokan_cb() ->
 	{get_disk_free_space, 0},
 	{get_volume_information, 0},
 	{lock_file, 0},
-	{move_file, 0},
 	{set_allocation_size, 0},
 	{set_end_of_file, 0},
 	{set_file_attributes, 0},
@@ -149,13 +149,20 @@ handle_info({Port, unmounted, Reason}, #state{port=Port} = S) ->
 	end;
 
 handle_info(Msg, #state{mod=Mod, state=State} = S) ->
-	case Mod:handle_info(Msg, State) of
+	Reply = try
+		Mod:handle_info(Msg, State)
+	catch
+		throw:Term -> Term
+	end,
+	case Reply of
 		{noreply, NewState} ->
 			{noreply, S#state{state=NewState}};
 		{noreply, NewState, Timeout} ->
 			{noreply, S#state{state=NewState}, Timeout};
 		{stop, Reason, NewState} ->
-			{stop, Reason, S#state{state=NewState}}
+			{stop, Reason, S#state{state=NewState}};
+		Else ->
+			Else
 	end.
 
 
@@ -178,7 +185,11 @@ code_change(OldVsn, #state{mod=Mod, state=State} = S, Extra) ->
 handle_request({Port, Req, Op, Args}, #state{mod=Mod, state=State} = S) ->
 	io:format("dokan request #~p ~p ~p~n", [Req, Op, Args]),
 	From = {Port, Req},
-	Result = apply(Mod, Op, [State, From | Args]),
+	Result = try
+		apply(Mod, Op, [State, From | Args])
+	catch
+		throw:Term -> Term
+	end,
 	case Result of
 		{noreply, NewState} ->
 			{noreply, S#state{state=NewState}};
@@ -189,7 +200,9 @@ handle_request({Port, Req, Op, Args}, #state{mod=Mod, state=State} = S) ->
 			reply(From, Reply),
 			{stop, Reason, S#state{state=NewState}};
 		{stop, Reason, NewState} ->
-			{stop, Reason, S#state{state=NewState}}
+			{stop, Reason, S#state{state=NewState}};
+		Else ->
+			Else
 	end.
 
 

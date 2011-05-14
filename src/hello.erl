@@ -20,18 +20,18 @@
 
 -export([create_file/8, open_directory/4, find_files/4, create_directory/4,
          get_file_information/4, read_file/6, write_file/6, delete_file/4,
-         delete_directory/4, close_file/4]).
+         delete_directory/4, close_file/4, move_file/6]).
 -export([init/1, handle_info/2, terminate/2, code_change/3]).
 
 -record(state, {vnodes}).
--record(file, {data, parent, deleted=false}).
--record(dir, {listing, parent, deleted=false}).
+-record(file, {data, deleted=false}).
+-record(dir, {listing, deleted=false}).
 
 init(_Args) ->
 	State = #state{
 		vnodes=gb_trees:from_orddict([
 			{0, #dir{listing=[{"text.txt", 1}]}},
-			{1, #file{data= <<"Hello World...">>, parent=0}}])
+			{1, #file{data= <<"Hello World...">>}}])
 	},
 	{ok, State}.
 
@@ -80,7 +80,7 @@ create_directory(#state{vnodes=VNodes} = S, _From, FileName, _FI) ->
 				false ->
 					{Max, _} = gb_trees:largest(VNodes), Ino = Max+1,
 					VN2 = gb_trees:enter(Ino, #dir{listing=[]}, VNodes),
-					VN3 = add_dir_entry(DirIno, Ino, Name, VN2),
+					VN3 = add_dir_entry(DirIno, Name, Ino, VN2),
 					{reply, #dokan_reply_open{is_directory=true}, S#state{vnodes=VN3}}
 			end;
 
@@ -89,7 +89,7 @@ create_directory(#state{vnodes=VNodes} = S, _From, FileName, _FI) ->
 	end.
 
 
-add_dir_entry(DirIno, Ino, Name, VNodes) ->
+add_dir_entry(DirIno, Name, Ino, VNodes) ->
 	Dir = #dir{listing=List} = gb_trees:get(DirIno, VNodes),
 	NewList = orddict:store(Name, Ino, List),
 	gb_trees:update(DirIno, Dir#dir{listing=NewList}, VNodes).
@@ -98,12 +98,8 @@ add_dir_entry(DirIno, Ino, Name, VNodes) ->
 close_file(#state{vnodes=VNodes} = S, _From, FileName, FI) ->
 	case FI#dokan_file_info.delete_on_close of
 		true ->
-			Ino = walk(FileName, S),
-			Parent = case gb_trees:get(Ino, VNodes) of
-				#file{parent=P} -> P;
-				#dir{parent=P} -> P
-			end,
-			NewVNodes = del_dir_entry(Parent, Ino, VNodes),
+			{ok, Parent, Name, Ino} = walk(FileName, S),
+			NewVNodes = gb_trees:delete(Ino, del_dir_entry(Parent, Name, VNodes)),
 			{reply, ok, S#state{vnodes=NewVNodes}};
 
 		false ->
@@ -111,11 +107,10 @@ close_file(#state{vnodes=VNodes} = S, _From, FileName, FI) ->
 	end.
 
 
-del_dir_entry(DirIno, Ino, VNodes) ->
+del_dir_entry(DirIno, Name, VNodes) ->
 	Dir = #dir{listing=Listing} = gb_trees:get(DirIno, VNodes),
-	NewListing = orddict:filter(fun(_Name, Child) -> Child =/= Ino end, Listing),
-	NewVNodes = gb_trees:update(DirIno, Dir#dir{listing=NewListing}, VNodes),
-	gb_trees:delete(Ino, NewVNodes).
+	NewListing = orddict:erase(Name, Listing),
+	gb_trees:update(DirIno, Dir#dir{listing=NewListing}, VNodes).
 
 
 find_files(#state{vnodes=VNodes} = S, _From, Path, _FI) ->
@@ -188,7 +183,7 @@ read_file(S, _From, FileName, Length, Offset, _FI) ->
 
 write_file(#state{vnodes=VNodes} = S, _From, FileName, Data, Offset, FI) ->
 	case walk(FileName, S) of
-		Ino when is_integer(Ino) ->
+		{ok, _, _, Ino} ->
 			case gb_trees:get(Ino, VNodes) of
 				#file{data=OldData} = File ->
 					NewData = case FI#dokan_file_info.write_to_eof of
@@ -229,7 +224,7 @@ do_write(OldData, Data, Offset) ->
 
 delete_file(#state{vnodes=VNodes} = S, _From, FileName, _FI) ->
 	case walk(FileName, S) of
-		Ino when is_integer(Ino) ->
+		{ok, _, _, Ino} ->
 			case gb_trees:get(Ino, VNodes) of
 				#file{} = File ->
 					NewFile = File#file{deleted=true},
@@ -245,7 +240,7 @@ delete_file(#state{vnodes=VNodes} = S, _From, FileName, _FI) ->
 
 delete_directory(#state{vnodes=VNodes} = S, _From, FileName, _FI) ->
 	case walk(FileName, S) of
-		Ino when is_integer(Ino) ->
+		{ok, _, _, Ino} ->
 			case gb_trees:get(Ino, VNodes) of
 				#dir{listing=Listing} = Dir when Listing == [] ->
 					NewDir = Dir#dir{deleted=true},
@@ -261,9 +256,48 @@ delete_directory(#state{vnodes=VNodes} = S, _From, FileName, _FI) ->
 	end.
 
 
+% TODO: check for open handles
+move_file(#state{vnodes=VNodes}=S, _From, OldName, NewName, Replace, _FI) ->
+	case walk(OldName, S) of
+		{ok, OldParent, OldPName, Ino} ->
+			case walk(NewName, S) of
+				{ok, NewParent, NewPName, ExistIno} ->
+					OldType = element(1, gb_trees:get(Ino, VNodes)),
+					ExistType = element(1, gb_trees:get(ExistIno, VNodes)),
+					if
+						OldType =/= ExistType -> throw({reply, {error, -5}, S});
+						ExistType =/= file -> throw({reply, {error, -5}, S});
+						not Replace -> throw({reply, {error, -5}, S});
+						true -> ok
+					end,
+					VN1 = del_dir_entry(OldParent, OldPName, VNodes),
+					VN2 = del_dir_entry(NewParent, NewPName, VN1),
+					VN3 = gb_trees:delete(ExistIno, VN2),
+					VN4 = add_dir_entry(NewParent, NewPName, Ino, VN3),
+					{reply, ok, S#state{vnodes=VN4}};
+
+				{stop, NewParent, NewPName} ->
+					case lists:any(fun(C) -> C == $\\ end, NewPName) of
+						true ->
+							{reply, {error, -3}, S}; % path not found
+						false ->
+							VN1 = del_dir_entry(OldParent, OldPName, VNodes),
+							VN2 = add_dir_entry(NewParent, NewPName, Ino, VN1),
+							{reply, ok, S#state{vnodes=VN2}}
+					end;
+
+				error ->
+					{reply, {error, -3}, S}
+			end;
+
+		_ ->
+			{reply, {error, -2}, S}
+	end.
+
+
 lookup(BinName, #state{vnodes=VNodes} = S) ->
 	case walk(BinName, S) of
-		Ino when is_integer(Ino) ->
+		{ok, _, _, Ino} ->
 			gb_trees:get(Ino, VNodes);
 		Error ->
 			Error
@@ -277,23 +311,23 @@ walk(BinName, State) ->
 		{incomplete, _, _} ->
 			error;
 		Name ->
-			do_walk(Name, 0, State)
+			do_walk(Name, 0, 0, "\\", State)
 	end.
 
 
-do_walk("", Ino, _S) ->
-	Ino;
+do_walk("", Ino, Parent, Name, _S) ->
+	{ok, Parent, Name, Ino};
 
-do_walk("\\", Ino, _S) ->
-	Ino;
+do_walk("\\", Ino, Parent, Name, _S) ->
+	{ok, Parent, Name, Ino};
 
-do_walk([$\\ | Path], DirIno, #state{vnodes=VNodes} = S) ->
+do_walk([$\\ | Path], DirIno, _, _, #state{vnodes=VNodes} = S) ->
 	{Name, Rest} = lists:splitwith(fun(C) -> C =/= $\\ end, Path),
 	case gb_trees:get(DirIno, VNodes) of
 		#dir{listing=Dir} ->
 			case orddict:find(Name, Dir) of
 				{ok, Ino} ->
-					do_walk(Rest, Ino, S);
+					do_walk(Rest, Ino, DirIno, Path, S);
 				error ->
 					{stop, DirIno, Path}
 			end;
@@ -302,6 +336,6 @@ do_walk([$\\ | Path], DirIno, #state{vnodes=VNodes} = S) ->
 			error %% can't descend from a file
 	end;
 
-do_walk(_, _, _) ->
+do_walk(_, _, _, _, _) ->
 	error.
 

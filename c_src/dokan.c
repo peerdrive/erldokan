@@ -32,6 +32,7 @@
 #define DEFAULT_MOUNT_POINT L"M:\\"
 #define IND_TERM_SIZE 48
 #define IND_IOV_SIZE 4
+#define IND_STRINGS_SIZE 2
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 #define CONTAINER_OF(_ptr, _type, _member) \
@@ -48,7 +49,7 @@ struct indication {
 
 	ErlDrvTermData ind_data[IND_TERM_SIZE];
 	int ind_pos, ind_args;
-	char *fileName;
+	char *strings[IND_STRINGS_SIZE];
 
 	HANDLE event;
 	int status;
@@ -316,9 +317,11 @@ static void QueuePut(struct ind_queue *q, struct indication *ind)
 
 static void IndAddString(struct indication *ind, LPCWSTR str)
 {
-	int len;
+	int len, i;
 
-	assert(!ind->fileName);
+	i = 0;
+	while (ind->strings[i] && i < IND_STRINGS_SIZE) i++;
+	assert(i < IND_STRINGS_SIZE);
 
 	/* Get size requirement */
 	len = WideCharToMultiByte(CP_UTF8, /* CodePage */
@@ -332,23 +335,23 @@ static void IndAddString(struct indication *ind, LPCWSTR str)
 	if (len <= 0)
 		return;
 
-	ind->fileName = driver_alloc(len);
-	if (!ind->fileName)
+	ind->strings[i] = driver_alloc(len);
+	if (!ind->strings[i])
 		return;
 
 	/* Convert to UTF-8 */
-	len = WideCharToMultiByte(CP_UTF8,       /* CodePage */
-	                          0,             /* dwFlags */
-	                          str,           /* lpWideCharStr */
-	                          -1,            /* cchWideChar */
-	                          ind->fileName, /* lpMultiByteStr */
-	                          len,           /* cbMultiByte */
-	                          NULL,          /* lpDefaultChar */
-	                          NULL);         /* lpUsedDefaultChar */
+	len = WideCharToMultiByte(CP_UTF8,         /* CodePage */
+	                          0,               /* dwFlags */
+	                          str,             /* lpWideCharStr */
+	                          -1,              /* cchWideChar */
+	                          ind->strings[i], /* lpMultiByteStr */
+	                          len,             /* cbMultiByte */
+	                          NULL,            /* lpDefaultChar */
+	                          NULL);           /* lpUsedDefaultChar */
 	if (len <= 0)
 		return;
 
-	IND_ADD_ARG2(ind, ERL_DRV_BUF2BINARY, (ErlDrvTermData)ind->fileName,
+	IND_ADD_ARG2(ind, ERL_DRV_BUF2BINARY, (ErlDrvTermData)ind->strings[i],
 		len-1);
 	ind->ind_args++;
 }
@@ -369,6 +372,12 @@ static void IndAddBuffer(struct indication *ind, const void *buffer,
                          unsigned long size)
 {
 	IND_ADD_ARG2(ind, ERL_DRV_BUF2BINARY, (ErlDrvTermData)buffer, size);
+	ind->ind_args++;
+}
+
+static void IndAddBool(struct indication *ind, BOOL data)
+{
+	IND_ADD_BOOL(ind, data);
 	ind->ind_args++;
 }
 
@@ -443,11 +452,15 @@ static void FreeIndication(struct self *self, struct indication *ind)
 
 static void LaunderIndication(struct indication *ind)
 {
+	int i;
+
 	IOVecFree(&ind->resp);
 
-	if (ind->fileName) {
-		driver_free(ind->fileName);
-		ind->fileName = NULL;
+	for (i=0; i<IND_STRINGS_SIZE; i++) {
+		if (ind->strings[i]) {
+			driver_free(ind->strings[i]);
+			ind->strings[i] = NULL;
+		}
 	}
 }
 
@@ -1234,6 +1247,40 @@ out:
 	return ret;
 }
 
+static int __stdcall
+ReqMoveFile(LPCWSTR fileName, LPCWSTR newFileName, BOOL replaceIfExisting,
+            PDOKAN_FILE_INFO fileInfo)
+{
+	struct self *self = FromFileInfo(fileInfo);
+	struct indication *ind;
+	struct parse_state ps;
+	int ret;
+
+	ind = AllocIndication(self, ATOM_MOVE_FILE);
+	if (!ind)
+		return -ERROR_OUTOFMEMORY;
+
+	/* fill indication */
+	IndAddString(ind, fileName);
+	IndAddString(ind, newFileName);
+	IndAddBool(ind, replaceIfExisting);
+	IndAddFileInfo(ind, fileInfo);
+	IndAddDone(ind);
+
+	if ((ret = SendIndication(self, ind)))
+		goto out;
+
+	/* parse response */
+	ret = InitParser(self, &ps, ind);
+	if (ret)
+		goto out;
+	ret = ParseGenericResponse(&ps);
+
+out:
+	FreeIndication(self, ind);
+	return ret;
+}
+
 static int ReplyOk(char **rbuf, int rlen)
 {
 	int i = 0;
@@ -1397,6 +1444,7 @@ static int Mount(struct self *self, char *buf, int len, char **rbuf, int rlen)
 		SUPPORTED_OP("find_files_with_pattern", FindFilesWithPattern, ReqFindFilesWithPattern);
 		SUPPORTED_OP("flush_file_buffers", FlushFileBuffers, ReqFlushFileBuffers);
 		SUPPORTED_OP("get_file_information", GetFileInformation, ReqGetFileInformation);
+		SUPPORTED_OP("move_file", MoveFile, ReqMoveFile);
 		SUPPORTED_OP("open_directory", OpenDirectory, ReqOpenDirectory);
 		SUPPORTED_OP("read_file", ReadFile, ReqReadFile);
 		SUPPORTED_OP("write_file", WriteFile, ReqWriteFile);
