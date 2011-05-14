@@ -17,6 +17,7 @@
 %%
 -module(hello).
 -include("erldokan.hrl").
+-include("winerror.hrl").
 
 -export([create_file/8, open_directory/4, find_files/4, create_directory/4,
          get_file_information/4, read_file/6, write_file/6, delete_file/4,
@@ -54,7 +55,7 @@ create_file(S, _From, FileName, _AccMode, _ShMode, _CrDisp, _Flags, _FI) ->
 		#dir{} ->
 			{reply, #dokan_reply_open{is_directory=true}, S};
 		_ ->
-			{reply, {error, -2}, S}
+			{reply, {error, -?ERROR_FILE_NOT_FOUND}, S}
 	end.
 
 
@@ -63,20 +64,20 @@ open_directory(S, _From, FileName, _FI) ->
 		#dir{} ->
 			{reply, #dokan_reply_open{is_directory=true}, S};
 		_ ->
-			{reply, {error, -2}, S}
+			{reply, {error, -?ERROR_FILE_NOT_FOUND}, S}
 	end.
 
 
 create_directory(#state{vnodes=VNodes} = S, _From, FileName, _FI) ->
 	case lookup(FileName, S) of
 		#dir{} ->
-			{reply, {error, -183}, S}; % already exists
+			{reply, {error, -?ERROR_ALREADY_EXISTS}, S};
 		#file{} ->
-			{reply, {error, -183}, S}; % already exists
+			{reply, {error, -?ERROR_ALREADY_EXISTS}, S};
 		{stop, DirIno, Name} ->
 			case lists:any(fun(C) -> C == $\\ end, Name) of
 				true ->
-					{reply, {error, -3}, S}; % path not found
+					{reply, {error, -?ERROR_PATH_NOT_FOUND}, S};
 				false ->
 					{Max, _} = gb_trees:largest(VNodes), Ino = Max+1,
 					VN2 = gb_trees:enter(Ino, #dir{listing=[]}, VNodes),
@@ -85,7 +86,7 @@ create_directory(#state{vnodes=VNodes} = S, _From, FileName, _FI) ->
 			end;
 
 		error ->
-			{reply, {error, -3}, S} % path not found
+			{reply, {error, -?ERROR_PATH_NOT_FOUND}, S}
 	end.
 
 
@@ -141,7 +142,7 @@ find_files(#state{vnodes=VNodes} = S, _From, Path, _FI) ->
 			{reply, List, S};
 
 		_ ->
-			{reply, {error, -2}, S}
+			{reply, {error, -?ERROR_FILE_NOT_FOUND}, S}
 	end.
 
 
@@ -159,7 +160,7 @@ get_file_information(S, _From, FileName, _FI) ->
 			},
 			{reply, Attr, S};
 		_ ->
-			{reply, {error, -2}, S}
+			{reply, {error, -?ERROR_FILE_NOT_FOUND}, S}
 	end.
 
 
@@ -177,7 +178,7 @@ read_file(S, _From, FileName, Length, Offset, _FI) ->
 			end,
 			{reply, binary:part(Data, InOffset, InLength), S};
 		_ ->
-			{reply, {error, -2}, S}
+			{reply, {error, -?ERROR_FILE_NOT_FOUND}, S}
 	end.
 
 
@@ -197,11 +198,11 @@ write_file(#state{vnodes=VNodes} = S, _From, FileName, Data, Offset, FI) ->
 					{reply, {ok, size(Data)}, S2};
 
 				_ ->
-					{reply, {error, -2}, S}
+					{reply, {error, -?ERROR_FILE_NOT_FOUND}, S}
 			end;
 
 		_ ->
-			{reply, {error, -2}, S}
+			{reply, {error, -?ERROR_FILE_NOT_FOUND}, S}
 	end.
 
 
@@ -230,11 +231,11 @@ delete_file(#state{vnodes=VNodes} = S, _From, FileName, _FI) ->
 					NewFile = File#file{deleted=true},
 					{reply, ok, S#state{vnodes=gb_trees:update(Ino, NewFile, VNodes)}};
 				#dir{} ->
-					{reply, {error, -5}, S}
+					{reply, {error, -?ERROR_ACCESS_DENIED}, S}
 			end;
 
 		_ ->
-			{reply, {error, -2}, S}
+			{reply, {error, -?ERROR_FILE_NOT_FOUND}, S}
 	end.
 
 
@@ -246,13 +247,13 @@ delete_directory(#state{vnodes=VNodes} = S, _From, FileName, _FI) ->
 					NewDir = Dir#dir{deleted=true},
 					{reply, ok, S#state{vnodes=gb_trees:update(Ino, NewDir, VNodes)}};
 				#dir{} ->
-					{reply, {error, -145}, S};
+					{reply, {error, -?ERROR_DIR_NOT_EMPTY}, S};
 				#file{} ->
-					{reply, {error, -5}, S}
+					{reply, {error, -?ERROR_ACCESS_DENIED}, S}
 			end;
 
 		_ ->
-			{reply, {error, -2}, S}
+			{reply, {error, -?ERROR_FILE_NOT_FOUND}, S}
 	end.
 
 
@@ -265,9 +266,9 @@ move_file(#state{vnodes=VNodes}=S, _From, OldName, NewName, Replace, _FI) ->
 					OldType = element(1, gb_trees:get(Ino, VNodes)),
 					ExistType = element(1, gb_trees:get(ExistIno, VNodes)),
 					if
-						OldType =/= ExistType -> throw({reply, {error, -5}, S});
-						ExistType =/= file -> throw({reply, {error, -5}, S});
-						not Replace -> throw({reply, {error, -5}, S});
+						OldType =/= ExistType -> throw({reply, {error, -?ERROR_ACCESS_DENIED}, S});
+						ExistType =/= file -> throw({reply, {error, -?ERROR_ACCESS_DENIED}, S});
+						not Replace -> throw({reply, {error, -?ERROR_ACCESS_DENIED}, S});
 						true -> ok
 					end,
 					VN1 = del_dir_entry(OldParent, OldPName, VNodes),
@@ -279,7 +280,7 @@ move_file(#state{vnodes=VNodes}=S, _From, OldName, NewName, Replace, _FI) ->
 				{stop, NewParent, NewPName} ->
 					case lists:any(fun(C) -> C == $\\ end, NewPName) of
 						true ->
-							{reply, {error, -3}, S}; % path not found
+							{reply, {error, -?ERROR_PATH_NOT_FOUND}, S};
 						false ->
 							VN1 = del_dir_entry(OldParent, OldPName, VNodes),
 							VN2 = add_dir_entry(NewParent, NewPName, Ino, VN1),
@@ -287,11 +288,11 @@ move_file(#state{vnodes=VNodes}=S, _From, OldName, NewName, Replace, _FI) ->
 					end;
 
 				error ->
-					{reply, {error, -3}, S}
+					{reply, {error, -?ERROR_PATH_NOT_FOUND}, S}
 			end;
 
 		_ ->
-			{reply, {error, -2}, S}
+			{reply, {error, -?ERROR_FILE_NOT_FOUND}, S}
 	end.
 
 
@@ -309,11 +310,11 @@ set_end_of_file(#state{vnodes=VNodes}=S, _From, FileName, Offset, _FI) ->
 					{reply, ok, S#state{vnodes=gb_trees:update(Ino, NewFile, VNodes)}};
 
 				#dir{} ->
-					{reply, {error, -5}, S}
+					{reply, {error, -?ERROR_ACCESS_DENIED}, S}
 			end;
 
 		_ ->
-			{reply, {error, -2}, S}
+			{reply, {error, -?ERROR_FILE_NOT_FOUND}, S}
 	end.
 
 
