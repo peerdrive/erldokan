@@ -20,7 +20,7 @@
 
 -export([create_file/8, open_directory/4, find_files/4, create_directory/4,
          get_file_information/4, read_file/6, write_file/6, delete_file/4,
-         delete_directory/4, close_file/4, move_file/6]).
+         delete_directory/4, close_file/4, move_file/6, set_end_of_file/5]).
 -export([init/1, handle_info/2, terminate/2, code_change/3]).
 
 -record(state, {vnodes}).
@@ -288,6 +288,28 @@ move_file(#state{vnodes=VNodes}=S, _From, OldName, NewName, Replace, _FI) ->
 
 				error ->
 					{reply, {error, -3}, S}
+			end;
+
+		_ ->
+			{reply, {error, -2}, S}
+	end.
+
+
+set_end_of_file(#state{vnodes=VNodes}=S, _From, FileName, Offset, _FI) ->
+	case walk(FileName, S) of
+		{ok, _, _, Ino} ->
+			case gb_trees:get(Ino, VNodes) of
+				#file{data=Data} = File ->
+					NewFile = if
+						Offset > size(Data) ->
+							File#file{data=binary:part(Data, 0, Offset)};
+						true ->
+							File
+					end,
+					{reply, ok, S#state{vnodes=gb_trees:update(Ino, NewFile, VNodes)}};
+
+				#dir{} ->
+					{reply, {error, -5}, S}
 			end;
 
 		_ ->
