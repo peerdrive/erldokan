@@ -596,12 +596,12 @@ static int ParseUndefined(struct parse_state *ps)
  */
 static int ParseOpenResponse(struct parse_state *ps, ULONG64 *ctx, UCHAR *isDir)
 {
-	int type, size, ret;
+	int type, size, ret, existed;
 	char tag[sizeof(REPLY_OPEN_TAG)];
 
 	if (ei_decode_tuple_header(ps->buf, &ps->index, &size))
 		goto fail;
-	if (size != 3)
+	if (size != 4)
 		goto fail;
 	CHECK(ei_get_type(ps->buf, &ps->index, &type, &size));
 	if (type != ERL_ATOM_EXT || size != sizeof(REPLY_OPEN_TAG)-1)
@@ -613,9 +613,10 @@ static int ParseOpenResponse(struct parse_state *ps, ULONG64 *ctx, UCHAR *isDir)
 		CHECK(ParseUndefined(ps));
 	if (ei_decode_boolean(ps->buf, &ps->index, &ret))
 		CHECK(ParseUndefined(ps));
+	CHECK(ei_decode_boolean(ps->buf, &ps->index, &existed));
 	*isDir = ret;
 
-	return 0;
+	return existed ? ERROR_ALREADY_EXISTS : 0;
 
 fail:
 	RewindParser(ps);

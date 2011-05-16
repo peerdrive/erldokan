@@ -110,7 +110,7 @@
 -define(FILE_FLAG_WRITE_THROUGH,      16#80000000).
 
 
--record(dokan_reply_open, {context, is_directory}).
+-record(dokan_reply_open, {context, is_directory, existed}).
 
 -record(dokan_reply_fi, {
 	file_attributes,

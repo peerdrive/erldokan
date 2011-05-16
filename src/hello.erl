@@ -24,15 +24,17 @@
          delete_directory/4, close_file/4, move_file/6, set_end_of_file/5]).
 -export([init/1, handle_info/2, terminate/2, code_change/3]).
 
--record(state, {vnodes}).
+-record(state, {vnodes, handles}).
 -record(file, {data, deleted=false}).
 -record(dir, {listing, deleted=false}).
+-record(handle, {ino, parent, name}).
 
 init(_Args) ->
 	State = #state{
 		vnodes=gb_trees:from_orddict([
 			{0, #dir{listing=[{"text.txt", 1}]}},
-			{1, #file{data= <<"Hello World...">>}}])
+			{1, #file{data= <<"Hello World...">>}}]),
+		handles=gb_trees:from_orddict([{0, undefined}])
 	},
 	{ok, State}.
 
@@ -46,25 +48,66 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
 	{ok, State}.
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+create_file(S, _From, FileName, _AccMode, _ShMode, CrDisp, _Flags, _DFI) ->
+	#state{vnodes=VNodes} = S,
+	case walk(FileName, S) of
+		{ok, Parent, Name, Ino} ->
+			case gb_trees:get(Ino, VNodes) of
+				#file{} when (CrDisp == ?OPEN_EXISTING) or
+				             (CrDisp == ?OPEN_ALWAYS) ->
+					{Ctx, S2} = handle_add(#handle{ino=Ino, parent=Parent, name=Name}, S),
+					{reply, #dokan_reply_open{context=Ctx, is_directory=false, existed=true}, S2};
 
-create_file(S, _From, FileName, _AccMode, _ShMode, _CrDisp, _Flags, _DFI) ->
-	case lookup(FileName, S) of
-		#file{} ->
-			{reply, #dokan_reply_open{is_directory=false}, S};
-		#dir{} ->
-			{reply, #dokan_reply_open{is_directory=true}, S};
-		_ ->
+				#file{} = File when (CrDisp == ?CREATE_ALWAYS) or
+				                    (CrDisp == ?TRUNCATE_EXISTING) ->
+					S2 = S#state{vnodes=gb_trees:update(Ino, File#file{data= <<>>}, VNodes)},
+					{Ctx, S3} = handle_add(#handle{ino=Ino, parent=Parent, name=Name}, S2),
+					{reply, #dokan_reply_open{context=Ctx, is_directory=false, existed=true}, S3};
+
+				#file{} when CrDisp == ?CREATE_NEW ->
+					{reply, {error, -?ERROR_FILE_EXISTS}, S};
+
+				#dir{} when CrDisp == ?OPEN_EXISTING ->
+					{Ctx, S2} = handle_add(#handle{ino=Ino, parent=Parent, name=Name}, S),
+					{reply, #dokan_reply_open{context=Ctx, is_directory=true, existed=true}, S2};
+
+				#dir{} ->
+					{reply, {error, -?ERROR_ACCESS_DENIED}, S}
+			end;
+
+		{stop, DirIno, Name} when (CrDisp == ?CREATE_ALWAYS) or
+		                          (CrDisp == ?CREATE_NEW) or
+		                          (CrDisp == ?OPEN_ALWAYS) ->
+			{Max, _} = gb_trees:largest(VNodes), Ino = Max+1,
+			VN2 = gb_trees:enter(Ino, #file{data= <<>>}, VNodes),
+			VN3 = add_dir_entry(DirIno, Name, Ino, VN2),
+			Handle = #handle{ino=Ino, parent=DirIno, name=Name},
+			{Ctx, S2} = handle_add(Handle, S#state{vnodes=VN3}),
+			{reply, #dokan_reply_open{context=Ctx, is_directory=true, existed=false}, S2};
+
+		{stop, _, _} ->
+			{reply, {error, -?ERROR_ACCESS_DENIED}, S};
+
+		error ->
 			{reply, {error, -?ERROR_FILE_NOT_FOUND}, S}
 	end.
 
 
 open_directory(S, _From, FileName, _DFI) ->
-	case lookup(FileName, S) of
-		#dir{} ->
-			{reply, #dokan_reply_open{is_directory=true}, S};
+	case walk(FileName, S) of
+		{ok, Parent, Name, Ino} ->
+			#state{vnodes=VNodes} = S,
+			case gb_trees:get(Ino, VNodes) of
+				#dir{} ->
+					{Ctx, S2} = handle_add(#handle{ino=Ino, parent=Parent, name=Name}, S),
+					{reply, #dokan_reply_open{context=Ctx, is_directory=true, existed=true}, S2};
+				#file{} ->
+					{reply, {error, -?ERROR_ACCESS_DENIED}, S}
+			end;
 		_ ->
-			{reply, {error, -?ERROR_FILE_NOT_FOUND}, S}
+			{reply, {error, -?ERROR_PATH_NOT_FOUND}, S}
 	end.
 
 
@@ -75,79 +118,64 @@ create_directory(#state{vnodes=VNodes} = S, _From, FileName, _DFI) ->
 		#file{} ->
 			{reply, {error, -?ERROR_ALREADY_EXISTS}, S};
 		{stop, DirIno, Name} ->
-			case lists:any(fun(C) -> C == $\\ end, Name) of
-				true ->
-					{reply, {error, -?ERROR_PATH_NOT_FOUND}, S};
-				false ->
-					{Max, _} = gb_trees:largest(VNodes), Ino = Max+1,
-					VN2 = gb_trees:enter(Ino, #dir{listing=[]}, VNodes),
-					VN3 = add_dir_entry(DirIno, Name, Ino, VN2),
-					{reply, #dokan_reply_open{is_directory=true}, S#state{vnodes=VN3}}
-			end;
+			{Max, _} = gb_trees:largest(VNodes), Ino = Max+1,
+			VN2 = gb_trees:enter(Ino, #dir{listing=[]}, VNodes),
+			VN3 = add_dir_entry(DirIno, Name, Ino, VN2),
+			Handle = #handle{ino=Ino, parent=DirIno, name=Name},
+			{Ctx, S2} = handle_add(Handle, S#state{vnodes=VN3}),
+			{reply, #dokan_reply_open{context=Ctx, is_directory=true, existed=false}, S2};
 
 		error ->
 			{reply, {error, -?ERROR_PATH_NOT_FOUND}, S}
 	end.
 
 
-add_dir_entry(DirIno, Name, Ino, VNodes) ->
-	Dir = #dir{listing=List} = gb_trees:get(DirIno, VNodes),
-	NewList = orddict:store(Name, Ino, List),
-	gb_trees:update(DirIno, Dir#dir{listing=NewList}, VNodes).
-
-
-close_file(#state{vnodes=VNodes} = S, _From, FileName, DFI) ->
+close_file(#state{vnodes=VNodes, handles=Handles} = S, _From, FileName, DFI) ->
+	Ctx = DFI#dokan_file_info.context,
+	S2 = if
+		Ctx =/= 0 -> S#state{handles=gb_trees:delete(Ctx, Handles)};
+		true -> S
+	end,
 	case DFI#dokan_file_info.delete_on_close of
 		true ->
-			{ok, Parent, Name, Ino} = walk(FileName, S),
+			{ok, Parent, Name, Ino} = walk(FileName, S2),
 			NewVNodes = gb_trees:delete(Ino, del_dir_entry(Parent, Name, VNodes)),
-			{reply, ok, S#state{vnodes=NewVNodes}};
+			{reply, ok, S2#state{vnodes=NewVNodes}};
 
 		false ->
-			{reply, ok, S}
+			{reply, ok, S2}
 	end.
 
 
-del_dir_entry(DirIno, Name, VNodes) ->
-	Dir = #dir{listing=Listing} = gb_trees:get(DirIno, VNodes),
-	NewListing = orddict:erase(Name, Listing),
-	gb_trees:update(DirIno, Dir#dir{listing=NewListing}, VNodes).
+find_files(#state{vnodes=VNodes} = S, _From, _Path, DFI) ->
+	#dir{listing=Dir} = get_vnode(S, DFI),
+	DirEntries = lists:map(
+		fun({Name, Ino}) ->
+			{unicode:characters_to_binary(Name), gb_trees:get(Ino, VNodes)}
+		end,
+		Dir),
+	List = lists:foldl(
+		fun
+			({Name, #dir{}}, Acc) ->
+				[#dokan_reply_find{
+					file_attributes = ?FILE_ATTRIBUTE_DIRECTORY,
+					file_size = 0,
+					file_name = Name
+				} | Acc];
+			({Name, #file{data=Data}}, Acc) ->
+				[#dokan_reply_find{
+					file_attributes = ?FILE_ATTRIBUTE_READONLY,
+					file_size = size(Data),
+					file_name = Name
+				} | Acc]
+		end,
+		[],
+		DirEntries),
+	{reply, List, S}.
 
 
-find_files(#state{vnodes=VNodes} = S, _From, Path, _DFI) ->
-	case lookup(Path, S) of
-		#dir{listing=Dir} ->
-			DirEntries = lists:map(
-				fun({Name, Ino}) ->
-					{unicode:characters_to_binary(Name), gb_trees:get(Ino, VNodes)}
-				end,
-				Dir),
-			List = lists:foldl(
-				fun
-					({Name, #dir{}}, Acc) ->
-						[#dokan_reply_find{
-							file_attributes = ?FILE_ATTRIBUTE_DIRECTORY,
-							file_size = 0,
-							file_name = Name
-						} | Acc];
-					({Name, #file{data=Data}}, Acc) ->
-						[#dokan_reply_find{
-							file_attributes = ?FILE_ATTRIBUTE_READONLY,
-							file_size = size(Data),
-							file_name = Name
-						} | Acc]
-				end,
-				[],
-				DirEntries),
-			{reply, List, S};
-
-		_ ->
-			{reply, {error, -?ERROR_FILE_NOT_FOUND}, S}
-	end.
-
-
-get_file_information(S, _From, FileName, _DFI) ->
-	case lookup(FileName, S) of
+get_file_information(S, _From, _FileName, DFI) ->
+	case get_vnode(S, DFI) of
 		#file{data=Data} ->
 			Attr = #dokan_reply_fi{
 				file_attributes = ?FILE_ATTRIBUTE_READONLY,
@@ -158,14 +186,12 @@ get_file_information(S, _From, FileName, _DFI) ->
 			Attr = #dokan_reply_fi{
 				file_attributes = ?FILE_ATTRIBUTE_DIRECTORY
 			},
-			{reply, Attr, S};
-		_ ->
-			{reply, {error, -?ERROR_FILE_NOT_FOUND}, S}
+			{reply, Attr, S}
 	end.
 
 
-read_file(S, _From, FileName, Length, Offset, _DFI) ->
-	case lookup(FileName, S) of
+read_file(S, _From, _FileName, Length, Offset, DFI) ->
+	case get_vnode(S, DFI) of
 		#file{data=Data} ->
 			Size = size(Data),
 			InOffset = if
@@ -177,33 +203,131 @@ read_file(S, _From, FileName, Length, Offset, _DFI) ->
 				true -> Length
 			end,
 			{reply, binary:part(Data, InOffset, InLength), S};
+
 		_ ->
-			{reply, {error, -?ERROR_FILE_NOT_FOUND}, S}
+			{reply, {error, -?ERROR_ACCESS_DENIED}, S}
 	end.
 
 
-write_file(#state{vnodes=VNodes} = S, _From, FileName, Data, Offset, DFI) ->
-	case walk(FileName, S) of
-		{ok, _, _, Ino} ->
-			case gb_trees:get(Ino, VNodes) of
-				#file{data=OldData} = File ->
-					NewData = case DFI#dokan_file_info.write_to_eof of
-						false ->
-							do_write(OldData, Data, Offset);
-						true ->
-							<<OldData/binary, Data/binary>>
-					end,
-					NewFile = File#file{data=NewData},
-					S2 = S#state{vnodes=gb_trees:update(Ino, NewFile, VNodes)},
-					{reply, {ok, size(Data)}, S2};
+write_file(#state{vnodes=VNodes} = S, _From, _FileName, Data, Offset, DFI) ->
+	Ino = get_ino(S, DFI),
+	case gb_trees:get(Ino, VNodes) of
+		#file{data=OldData} = File ->
+			NewData = case DFI#dokan_file_info.write_to_eof of
+				false ->
+					do_write(OldData, Data, Offset);
+				true ->
+					<<OldData/binary, Data/binary>>
+			end,
+			NewFile = File#file{data=NewData},
+			S2 = S#state{vnodes=gb_trees:update(Ino, NewFile, VNodes)},
+			{reply, {ok, size(Data)}, S2};
 
-				_ ->
-					{reply, {error, -?ERROR_FILE_NOT_FOUND}, S}
+		#dir{} ->
+			{reply, {error, -?ERROR_ACCESS_DENIED}, S}
+	end.
+
+
+delete_file(#state{vnodes=VNodes} = S, _From, _FileName, DFI) ->
+	Ino = get_ino(S, DFI),
+	case gb_trees:get(Ino, VNodes) of
+		#file{} = File ->
+			NewFile = File#file{deleted=true},
+			{reply, ok, S#state{vnodes=gb_trees:update(Ino, NewFile, VNodes)}};
+		#dir{} ->
+			{reply, {error, -?ERROR_ACCESS_DENIED}, S}
+	end.
+
+
+delete_directory(#state{vnodes=VNodes} = S, _From, _FileName, DFI) ->
+	Ino = get_ino(S, DFI),
+	case gb_trees:get(Ino, VNodes) of
+		#dir{listing=Listing} = Dir when Listing == [] ->
+			NewDir = Dir#dir{deleted=true},
+			{reply, ok, S#state{vnodes=gb_trees:update(Ino, NewDir, VNodes)}};
+		#dir{} ->
+			{reply, {error, -?ERROR_DIR_NOT_EMPTY}, S};
+		#file{} ->
+			{reply, {error, -?ERROR_ACCESS_DENIED}, S}
+	end.
+
+
+% TODO: check for open handles
+move_file(S, _From, _OldName, NewName, Replace, DFI) ->
+	#state{vnodes=VNodes, handles=Handles} = S,
+	#handle{
+		ino    = Ino,
+		parent = OldParent,
+		name   = OldPName
+	} = gb_trees:get(DFI#dokan_file_info.context, Handles),
+	case walk(NewName, S) of
+		{ok, NewParent, NewPName, ExistIno} ->
+			OldType = element(1, gb_trees:get(Ino, VNodes)),
+			ExistType = element(1, gb_trees:get(ExistIno, VNodes)),
+			if
+				OldType =/= ExistType -> throw({reply, {error, -?ERROR_ACCESS_DENIED}, S});
+				ExistType =/= file -> throw({reply, {error, -?ERROR_ACCESS_DENIED}, S});
+				not Replace -> throw({reply, {error, -?ERROR_ACCESS_DENIED}, S});
+				true -> ok
+			end,
+			VN1 = del_dir_entry(OldParent, OldPName, VNodes),
+			VN2 = del_dir_entry(NewParent, NewPName, VN1),
+			VN3 = gb_trees:delete(ExistIno, VN2),
+			VN4 = add_dir_entry(NewParent, NewPName, Ino, VN3),
+			{reply, ok, S#state{vnodes=VN4}};
+
+		{stop, NewParent, NewPName} ->
+			case lists:any(fun(C) -> C == $\\ end, NewPName) of
+				true ->
+					{reply, {error, -?ERROR_PATH_NOT_FOUND}, S};
+				false ->
+					VN1 = del_dir_entry(OldParent, OldPName, VNodes),
+					VN2 = add_dir_entry(NewParent, NewPName, Ino, VN1),
+					{reply, ok, S#state{vnodes=VN2}}
 			end;
 
-		_ ->
-			{reply, {error, -?ERROR_FILE_NOT_FOUND}, S}
+		error ->
+			{reply, {error, -?ERROR_PATH_NOT_FOUND}, S}
 	end.
+
+
+set_end_of_file(#state{vnodes=VNodes}=S, _From, _FileName, Offset, DFI) ->
+	Ino = get_ino(S, DFI),
+	case gb_trees:get(Ino, VNodes) of
+		#file{data=Data} = File ->
+			NewFile = if
+				Offset > size(Data) ->
+					File#file{data=binary:part(Data, 0, Offset)};
+				true ->
+					File
+			end,
+			{reply, ok, S#state{vnodes=gb_trees:update(Ino, NewFile, VNodes)}};
+
+		#dir{} ->
+			{reply, {error, -?ERROR_ACCESS_DENIED}, S}
+	end.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+handle_add(Handle, #state{handles=Handles} = S) ->
+	{Max, _} = gb_trees:largest(Handles),
+	Ctx = Max+1,
+	NewHandles = gb_trees:enter(Ctx, Handle, Handles),
+	{Ctx, S#state{handles=NewHandles}}.
+
+
+add_dir_entry(DirIno, Name, Ino, VNodes) ->
+	Dir = #dir{listing=List} = gb_trees:get(DirIno, VNodes),
+	NewList = orddict:store(Name, Ino, List),
+	gb_trees:update(DirIno, Dir#dir{listing=NewList}, VNodes).
+
+
+del_dir_entry(DirIno, Name, VNodes) ->
+	Dir = #dir{listing=Listing} = gb_trees:get(DirIno, VNodes),
+	NewListing = orddict:erase(Name, Listing),
+	gb_trees:update(DirIno, Dir#dir{listing=NewListing}, VNodes).
 
 
 do_write(OldData, Data, Offset) ->
@@ -223,99 +347,14 @@ do_write(OldData, Data, Offset) ->
 	<<Prefix/binary, Data/binary, Postfix/binary>>.
 
 
-delete_file(#state{vnodes=VNodes} = S, _From, FileName, _DFI) ->
-	case walk(FileName, S) of
-		{ok, _, _, Ino} ->
-			case gb_trees:get(Ino, VNodes) of
-				#file{} = File ->
-					NewFile = File#file{deleted=true},
-					{reply, ok, S#state{vnodes=gb_trees:update(Ino, NewFile, VNodes)}};
-				#dir{} ->
-					{reply, {error, -?ERROR_ACCESS_DENIED}, S}
-			end;
-
-		_ ->
-			{reply, {error, -?ERROR_FILE_NOT_FOUND}, S}
-	end.
+get_ino(#state{handles=Handles}, DFI) ->
+	#handle{ino=Ino} = gb_trees:get(DFI#dokan_file_info.context, Handles),
+	Ino.
 
 
-delete_directory(#state{vnodes=VNodes} = S, _From, FileName, _DFI) ->
-	case walk(FileName, S) of
-		{ok, _, _, Ino} ->
-			case gb_trees:get(Ino, VNodes) of
-				#dir{listing=Listing} = Dir when Listing == [] ->
-					NewDir = Dir#dir{deleted=true},
-					{reply, ok, S#state{vnodes=gb_trees:update(Ino, NewDir, VNodes)}};
-				#dir{} ->
-					{reply, {error, -?ERROR_DIR_NOT_EMPTY}, S};
-				#file{} ->
-					{reply, {error, -?ERROR_ACCESS_DENIED}, S}
-			end;
-
-		_ ->
-			{reply, {error, -?ERROR_FILE_NOT_FOUND}, S}
-	end.
-
-
-% TODO: check for open handles
-move_file(#state{vnodes=VNodes}=S, _From, OldName, NewName, Replace, _DFI) ->
-	case walk(OldName, S) of
-		{ok, OldParent, OldPName, Ino} ->
-			case walk(NewName, S) of
-				{ok, NewParent, NewPName, ExistIno} ->
-					OldType = element(1, gb_trees:get(Ino, VNodes)),
-					ExistType = element(1, gb_trees:get(ExistIno, VNodes)),
-					if
-						OldType =/= ExistType -> throw({reply, {error, -?ERROR_ACCESS_DENIED}, S});
-						ExistType =/= file -> throw({reply, {error, -?ERROR_ACCESS_DENIED}, S});
-						not Replace -> throw({reply, {error, -?ERROR_ACCESS_DENIED}, S});
-						true -> ok
-					end,
-					VN1 = del_dir_entry(OldParent, OldPName, VNodes),
-					VN2 = del_dir_entry(NewParent, NewPName, VN1),
-					VN3 = gb_trees:delete(ExistIno, VN2),
-					VN4 = add_dir_entry(NewParent, NewPName, Ino, VN3),
-					{reply, ok, S#state{vnodes=VN4}};
-
-				{stop, NewParent, NewPName} ->
-					case lists:any(fun(C) -> C == $\\ end, NewPName) of
-						true ->
-							{reply, {error, -?ERROR_PATH_NOT_FOUND}, S};
-						false ->
-							VN1 = del_dir_entry(OldParent, OldPName, VNodes),
-							VN2 = add_dir_entry(NewParent, NewPName, Ino, VN1),
-							{reply, ok, S#state{vnodes=VN2}}
-					end;
-
-				error ->
-					{reply, {error, -?ERROR_PATH_NOT_FOUND}, S}
-			end;
-
-		_ ->
-			{reply, {error, -?ERROR_FILE_NOT_FOUND}, S}
-	end.
-
-
-set_end_of_file(#state{vnodes=VNodes}=S, _From, FileName, Offset, _DFI) ->
-	case walk(FileName, S) of
-		{ok, _, _, Ino} ->
-			case gb_trees:get(Ino, VNodes) of
-				#file{data=Data} = File ->
-					NewFile = if
-						Offset > size(Data) ->
-							File#file{data=binary:part(Data, 0, Offset)};
-						true ->
-							File
-					end,
-					{reply, ok, S#state{vnodes=gb_trees:update(Ino, NewFile, VNodes)}};
-
-				#dir{} ->
-					{reply, {error, -?ERROR_ACCESS_DENIED}, S}
-			end;
-
-		_ ->
-			{reply, {error, -?ERROR_FILE_NOT_FOUND}, S}
-	end.
+get_vnode(#state{vnodes=VNodes} = S, DFI) ->
+	Ino = get_ino(S, DFI),
+	gb_trees:get(Ino, VNodes).
 
 
 lookup(BinName, #state{vnodes=VNodes} = S) ->
@@ -352,7 +391,12 @@ do_walk([$\\ | Path], DirIno, _, _, #state{vnodes=VNodes} = S) ->
 				{ok, Ino} ->
 					do_walk(Rest, Ino, DirIno, Path, S);
 				error ->
-					{stop, DirIno, Path}
+					case lists:any(fun(C) -> C == $\\ end, Path) of
+						true ->
+							error; % invalid file name
+						false ->
+							{stop, DirIno, Path}
+					end
 			end;
 
 		#file{} ->

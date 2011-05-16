@@ -183,7 +183,7 @@ code_change(OldVsn, #state{mod=Mod, state=State} = S, Extra) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 handle_request({Port, Req, Op, Args}, #state{mod=Mod, state=State} = S) ->
-	io:format("dokan request #~p ~p ~p~n", [Req, Op, Args]),
+	io:format("=> #~p ~p ~p~n", [Req, Op, Args]),
 	From = {Port, Req},
 	Result = try
 		apply(Mod, Op, [State, From | Args])
@@ -212,7 +212,7 @@ reply({Port, Req}, Reply) when is_binary(Reply) ->
 		Status, Reply]);
 
 reply({Port, Req}, Reply) ->
-	io:format("dokan reply #~p ~p~n", [Req, Reply]),
+	io:format("<- #~p ~p~n", [Req, Reply]),
 	Status = term_to_binary(Reply),
 	port_command(Port, [<<Req:32/native-unsigned, (size(Status)):32/native-unsigned>>,
 		Status]).
