@@ -88,7 +88,7 @@ create_file(S, _From, FileName, _AccMode, _ShMode, CrDisp, _Flags, _DFI) ->
 			{reply, #dokan_reply_open{context=Ctx, is_directory=true, existed=false}, S2};
 
 		{stop, _, _} ->
-			{reply, {error, ?ERROR_ACCESS_DENIED}, S};
+			{reply, {error, ?ERROR_FILE_NOT_FOUND}, S};
 
 		error ->
 			{reply, {error, ?ERROR_FILE_NOT_FOUND}, S}
@@ -164,7 +164,7 @@ find_files(#state{vnodes=VNodes} = S, _From, _Path, DFI) ->
 				} | Acc];
 			({Name, #file{data=Data}}, Acc) ->
 				[#dokan_reply_find{
-					file_attributes = ?FILE_ATTRIBUTE_READONLY,
+					file_attributes = ?FILE_ATTRIBUTE_NORMAL,
 					file_size = size(Data),
 					file_name = Name
 				} | Acc]
@@ -178,7 +178,7 @@ get_file_information(S, _From, _FileName, DFI) ->
 	case get_vnode(S, DFI) of
 		#file{data=Data} ->
 			Attr = #dokan_reply_fi{
-				file_attributes = ?FILE_ATTRIBUTE_READONLY,
+				file_attributes = ?FILE_ATTRIBUTE_NORMAL,
 				file_size = size(Data)
 			},
 			{reply, Attr, S};
