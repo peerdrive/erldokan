@@ -48,7 +48,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 
 
-create_file(S, _From, FileName, _AccMode, _ShMode, _CrDisp, _Flags, _FI) ->
+create_file(S, _From, FileName, _AccMode, _ShMode, _CrDisp, _Flags, _DFI) ->
 	case lookup(FileName, S) of
 		#file{} ->
 			{reply, #dokan_reply_open{is_directory=false}, S};
@@ -59,7 +59,7 @@ create_file(S, _From, FileName, _AccMode, _ShMode, _CrDisp, _Flags, _FI) ->
 	end.
 
 
-open_directory(S, _From, FileName, _FI) ->
+open_directory(S, _From, FileName, _DFI) ->
 	case lookup(FileName, S) of
 		#dir{} ->
 			{reply, #dokan_reply_open{is_directory=true}, S};
@@ -68,7 +68,7 @@ open_directory(S, _From, FileName, _FI) ->
 	end.
 
 
-create_directory(#state{vnodes=VNodes} = S, _From, FileName, _FI) ->
+create_directory(#state{vnodes=VNodes} = S, _From, FileName, _DFI) ->
 	case lookup(FileName, S) of
 		#dir{} ->
 			{reply, {error, -?ERROR_ALREADY_EXISTS}, S};
@@ -96,8 +96,8 @@ add_dir_entry(DirIno, Name, Ino, VNodes) ->
 	gb_trees:update(DirIno, Dir#dir{listing=NewList}, VNodes).
 
 
-close_file(#state{vnodes=VNodes} = S, _From, FileName, FI) ->
-	case FI#dokan_file_info.delete_on_close of
+close_file(#state{vnodes=VNodes} = S, _From, FileName, DFI) ->
+	case DFI#dokan_file_info.delete_on_close of
 		true ->
 			{ok, Parent, Name, Ino} = walk(FileName, S),
 			NewVNodes = gb_trees:delete(Ino, del_dir_entry(Parent, Name, VNodes)),
@@ -114,7 +114,7 @@ del_dir_entry(DirIno, Name, VNodes) ->
 	gb_trees:update(DirIno, Dir#dir{listing=NewListing}, VNodes).
 
 
-find_files(#state{vnodes=VNodes} = S, _From, Path, _FI) ->
+find_files(#state{vnodes=VNodes} = S, _From, Path, _DFI) ->
 	case lookup(Path, S) of
 		#dir{listing=Dir} ->
 			DirEntries = lists:map(
@@ -146,7 +146,7 @@ find_files(#state{vnodes=VNodes} = S, _From, Path, _FI) ->
 	end.
 
 
-get_file_information(S, _From, FileName, _FI) ->
+get_file_information(S, _From, FileName, _DFI) ->
 	case lookup(FileName, S) of
 		#file{data=Data} ->
 			Attr = #dokan_reply_fi{
@@ -164,7 +164,7 @@ get_file_information(S, _From, FileName, _FI) ->
 	end.
 
 
-read_file(S, _From, FileName, Length, Offset, _FI) ->
+read_file(S, _From, FileName, Length, Offset, _DFI) ->
 	case lookup(FileName, S) of
 		#file{data=Data} ->
 			Size = size(Data),
@@ -182,12 +182,12 @@ read_file(S, _From, FileName, Length, Offset, _FI) ->
 	end.
 
 
-write_file(#state{vnodes=VNodes} = S, _From, FileName, Data, Offset, FI) ->
+write_file(#state{vnodes=VNodes} = S, _From, FileName, Data, Offset, DFI) ->
 	case walk(FileName, S) of
 		{ok, _, _, Ino} ->
 			case gb_trees:get(Ino, VNodes) of
 				#file{data=OldData} = File ->
-					NewData = case FI#dokan_file_info.write_to_eof of
+					NewData = case DFI#dokan_file_info.write_to_eof of
 						false ->
 							do_write(OldData, Data, Offset);
 						true ->
@@ -223,7 +223,7 @@ do_write(OldData, Data, Offset) ->
 	<<Prefix/binary, Data/binary, Postfix/binary>>.
 
 
-delete_file(#state{vnodes=VNodes} = S, _From, FileName, _FI) ->
+delete_file(#state{vnodes=VNodes} = S, _From, FileName, _DFI) ->
 	case walk(FileName, S) of
 		{ok, _, _, Ino} ->
 			case gb_trees:get(Ino, VNodes) of
@@ -239,7 +239,7 @@ delete_file(#state{vnodes=VNodes} = S, _From, FileName, _FI) ->
 	end.
 
 
-delete_directory(#state{vnodes=VNodes} = S, _From, FileName, _FI) ->
+delete_directory(#state{vnodes=VNodes} = S, _From, FileName, _DFI) ->
 	case walk(FileName, S) of
 		{ok, _, _, Ino} ->
 			case gb_trees:get(Ino, VNodes) of
@@ -258,7 +258,7 @@ delete_directory(#state{vnodes=VNodes} = S, _From, FileName, _FI) ->
 
 
 % TODO: check for open handles
-move_file(#state{vnodes=VNodes}=S, _From, OldName, NewName, Replace, _FI) ->
+move_file(#state{vnodes=VNodes}=S, _From, OldName, NewName, Replace, _DFI) ->
 	case walk(OldName, S) of
 		{ok, OldParent, OldPName, Ino} ->
 			case walk(NewName, S) of
@@ -296,7 +296,7 @@ move_file(#state{vnodes=VNodes}=S, _From, OldName, NewName, Replace, _FI) ->
 	end.
 
 
-set_end_of_file(#state{vnodes=VNodes}=S, _From, FileName, Offset, _FI) ->
+set_end_of_file(#state{vnodes=VNodes}=S, _From, FileName, Offset, _DFI) ->
 	case walk(FileName, S) of
 		{ok, _, _, Ino} ->
 			case gb_trees:get(Ino, VNodes) of

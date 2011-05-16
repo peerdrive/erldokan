@@ -165,9 +165,9 @@ static char *atom_templates[_ATOM_COUNT] = {
 
 static ErlDrvTermData atom_table[_ATOM_COUNT];
 
-static struct self *FromFileInfo(PDOKAN_FILE_INFO fileInfo)
+static struct self *FromDokanInfo(PDOKAN_FILE_INFO dokanInfo)
 {
-	return (struct self *)(unsigned long)fileInfo->DokanOptions->GlobalContext;
+	return (struct self *)(unsigned long)dokanInfo->DokanOptions->GlobalContext;
 }
 
 static void IOVecCopy(ErlIOVec *dst, ErlIOVec *src)
@@ -381,17 +381,17 @@ static void IndAddBool(struct indication *ind, BOOL data)
 	ind->ind_args++;
 }
 
-static void IndAddFileInfo(struct indication *ind, PDOKAN_FILE_INFO fileInfo)
+static void IndAddDokanInfo(struct indication *ind, PDOKAN_FILE_INFO dokanInfo)
 {
 	IND_ADD_ARG1(ind, ERL_DRV_ATOM, atom_table[ATOM_DOKAN_FILE_INFO]);
-	IND_ADD_ARG1(ind, ERL_DRV_UINT64, &fileInfo->Context);
-	IND_ADD_ARG1(ind, ERL_DRV_UINT, fileInfo->ProcessId);
-	IND_ADD_BOOL(ind, fileInfo->IsDirectory);
-	IND_ADD_BOOL(ind, fileInfo->DeleteOnClose);
-	IND_ADD_BOOL(ind, fileInfo->PagingIo);
-	IND_ADD_BOOL(ind, fileInfo->SynchronousIo);
-	IND_ADD_BOOL(ind, fileInfo->Nocache);
-	IND_ADD_BOOL(ind, fileInfo->WriteToEndOfFile);
+	IND_ADD_ARG1(ind, ERL_DRV_UINT64, &dokanInfo->Context);
+	IND_ADD_ARG1(ind, ERL_DRV_UINT, dokanInfo->ProcessId);
+	IND_ADD_BOOL(ind, dokanInfo->IsDirectory);
+	IND_ADD_BOOL(ind, dokanInfo->DeleteOnClose);
+	IND_ADD_BOOL(ind, dokanInfo->PagingIo);
+	IND_ADD_BOOL(ind, dokanInfo->SynchronousIo);
+	IND_ADD_BOOL(ind, dokanInfo->Nocache);
+	IND_ADD_BOOL(ind, dokanInfo->WriteToEndOfFile);
 	IND_ADD_ARG1(ind, ERL_DRV_TUPLE, 9);
 	ind->ind_args++;
 }
@@ -630,9 +630,9 @@ badarg:
 
 static int __stdcall
 ReqCreateFile(LPCWSTR fileName, DWORD accessMode, DWORD shareMode,
-              DWORD creationDisposition, DWORD flags, PDOKAN_FILE_INFO fileInfo)
+              DWORD creationDisposition, DWORD flags, PDOKAN_FILE_INFO dokanInfo)
 {
-	struct self *self = FromFileInfo(fileInfo);
+	struct self *self = FromDokanInfo(dokanInfo);
 	struct indication *ind;
 	struct parse_state ps;
 	int ret;
@@ -647,7 +647,7 @@ ReqCreateFile(LPCWSTR fileName, DWORD accessMode, DWORD shareMode,
 	IndAddUInt(ind, shareMode);
 	IndAddUInt(ind, creationDisposition);
 	IndAddUInt(ind, flags);
-	IndAddFileInfo(ind, fileInfo);
+	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
 	if ((ret = SendIndication(self, ind)))
@@ -657,7 +657,7 @@ ReqCreateFile(LPCWSTR fileName, DWORD accessMode, DWORD shareMode,
 	ret = InitParser(self, &ps, ind);
 	if (ret)
 		goto out;
-	ret = ParseOpenResponse(&ps, &fileInfo->Context, &fileInfo->IsDirectory);
+	ret = ParseOpenResponse(&ps, &dokanInfo->Context, &dokanInfo->IsDirectory);
 
 out:
 	FreeIndication(self, ind);
@@ -665,9 +665,9 @@ out:
 }
 
 static int __stdcall
-ReqOpenDirectory(LPCWSTR fileName, PDOKAN_FILE_INFO fileInfo)
+ReqOpenDirectory(LPCWSTR fileName, PDOKAN_FILE_INFO dokanInfo)
 {
-	struct self *self = FromFileInfo(fileInfo);
+	struct self *self = FromDokanInfo(dokanInfo);
 	struct indication *ind;
 	struct parse_state ps;
 	int ret;
@@ -678,7 +678,7 @@ ReqOpenDirectory(LPCWSTR fileName, PDOKAN_FILE_INFO fileInfo)
 
 	/* fill indication */
 	IndAddString(ind, fileName);
-	IndAddFileInfo(ind, fileInfo);
+	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
 	if ((ret = SendIndication(self, ind)))
@@ -688,7 +688,7 @@ ReqOpenDirectory(LPCWSTR fileName, PDOKAN_FILE_INFO fileInfo)
 	ret = InitParser(self, &ps, ind);
 	if (ret)
 		goto out;
-	ret = ParseOpenResponse(&ps, &fileInfo->Context, &fileInfo->IsDirectory);
+	ret = ParseOpenResponse(&ps, &dokanInfo->Context, &dokanInfo->IsDirectory);
 
 out:
 	FreeIndication(self, ind);
@@ -696,9 +696,9 @@ out:
 }
 
 static int __stdcall
-ReqCreateDirectory(LPCWSTR fileName, PDOKAN_FILE_INFO fileInfo)
+ReqCreateDirectory(LPCWSTR fileName, PDOKAN_FILE_INFO dokanInfo)
 {
-	struct self *self = FromFileInfo(fileInfo);
+	struct self *self = FromDokanInfo(dokanInfo);
 	struct indication *ind;
 	struct parse_state ps;
 	int ret;
@@ -709,7 +709,7 @@ ReqCreateDirectory(LPCWSTR fileName, PDOKAN_FILE_INFO fileInfo)
 
 	/* fill indication */
 	IndAddString(ind, fileName);
-	IndAddFileInfo(ind, fileInfo);
+	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
 	if ((ret = SendIndication(self, ind)))
@@ -719,7 +719,7 @@ ReqCreateDirectory(LPCWSTR fileName, PDOKAN_FILE_INFO fileInfo)
 	ret = InitParser(self, &ps, ind);
 	if (ret)
 		goto out;
-	ret = ParseOpenResponse(&ps, &fileInfo->Context, &fileInfo->IsDirectory);
+	ret = ParseOpenResponse(&ps, &dokanInfo->Context, &dokanInfo->IsDirectory);
 
 out:
 	FreeIndication(self, ind);
@@ -732,7 +732,7 @@ out:
  * [#dokan_reply_find{}] | {error, ErrNo}
  */
 static int ParseFFResponse(struct parse_state *ps, PFillFindData fillFindData,
-                           PDOKAN_FILE_INFO fileInfo)
+                           PDOKAN_FILE_INFO dokanInfo)
 {
 	int i, type, size, length, ret, buf_len;
 	char *buf;
@@ -790,7 +790,7 @@ static int ParseFFResponse(struct parse_state *ps, PFillFindData fillFindData,
 			ARRAY_SIZE(findData.cFileName)-1);
 		findData.cFileName[size] = 0;
 
-		fillFindData(&findData, fileInfo);
+		fillFindData(&findData, dokanInfo);
 	}
 
 	/* Parse tail of list (but not if list was empty) */
@@ -815,9 +815,9 @@ badarg:
 
 static int __stdcall
 ReqFindFiles(LPCWSTR fileName, PFillFindData fillFindData,
-             PDOKAN_FILE_INFO fileInfo)
+             PDOKAN_FILE_INFO dokanInfo)
 {
-	struct self *self = FromFileInfo(fileInfo);
+	struct self *self = FromDokanInfo(dokanInfo);
 	struct indication *ind;
 	struct parse_state ps;
 	int ret;
@@ -828,7 +828,7 @@ ReqFindFiles(LPCWSTR fileName, PFillFindData fillFindData,
 
 	/* fill indication */
 	IndAddString(ind, fileName);
-	IndAddFileInfo(ind, fileInfo);
+	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
 	if ((ret = SendIndication(self, ind)))
@@ -838,7 +838,7 @@ ReqFindFiles(LPCWSTR fileName, PFillFindData fillFindData,
 	ret = InitParser(self, &ps, ind);
 	if (ret)
 		goto out;
-	ret = ParseFFResponse(&ps, fillFindData, fileInfo);
+	ret = ParseFFResponse(&ps, fillFindData, dokanInfo);
 
 out:
 	FreeIndication(self, ind);
@@ -847,9 +847,9 @@ out:
 
 static int __stdcall
 ReqFindFilesWithPattern(LPCWSTR fileName, LPCWSTR searchPattern,
-                        PFillFindData fillFindData, PDOKAN_FILE_INFO fileInfo)
+                        PFillFindData fillFindData, PDOKAN_FILE_INFO dokanInfo)
 {
-	struct self *self = FromFileInfo(fileInfo);
+	struct self *self = FromDokanInfo(dokanInfo);
 	struct indication *ind;
 	struct parse_state ps;
 	int ret;
@@ -861,7 +861,7 @@ ReqFindFilesWithPattern(LPCWSTR fileName, LPCWSTR searchPattern,
 	/* fill indication */
 	IndAddString(ind, fileName);
 	IndAddString(ind, searchPattern);
-	IndAddFileInfo(ind, fileInfo);
+	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
 	if ((ret = SendIndication(self, ind)))
@@ -871,7 +871,7 @@ ReqFindFilesWithPattern(LPCWSTR fileName, LPCWSTR searchPattern,
 	ret = InitParser(self, &ps, ind);
 	if (ret)
 		goto out;
-	ret = ParseFFResponse(&ps, fillFindData, fileInfo);
+	ret = ParseFFResponse(&ps, fillFindData, dokanInfo);
 
 out:
 	FreeIndication(self, ind);
@@ -940,9 +940,9 @@ badarg:
 static int __stdcall
 ReqGetFileInformation(LPCWSTR fileName,
                       LPBY_HANDLE_FILE_INFORMATION fileInformation,
-                      PDOKAN_FILE_INFO fileInfo)
+                      PDOKAN_FILE_INFO dokanInfo)
 {
-	struct self *self = FromFileInfo(fileInfo);
+	struct self *self = FromDokanInfo(dokanInfo);
 	struct indication *ind;
 	struct parse_state ps;
 	int ret;
@@ -953,7 +953,7 @@ ReqGetFileInformation(LPCWSTR fileName,
 
 	/* fill indication */
 	IndAddString(ind, fileName);
-	IndAddFileInfo(ind, fileInfo);
+	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
 	if ((ret = SendIndication(self, ind)))
@@ -971,9 +971,9 @@ out:
 }
 
 static int __stdcall
-ReqCleanup(LPCWSTR fileName, PDOKAN_FILE_INFO fileInfo)
+ReqCleanup(LPCWSTR fileName, PDOKAN_FILE_INFO dokanInfo)
 {
-	struct self *self = FromFileInfo(fileInfo);
+	struct self *self = FromDokanInfo(dokanInfo);
 	struct indication *ind;
 	struct parse_state ps;
 	int ret;
@@ -984,7 +984,7 @@ ReqCleanup(LPCWSTR fileName, PDOKAN_FILE_INFO fileInfo)
 
 	/* fill indication */
 	IndAddString(ind, fileName);
-	IndAddFileInfo(ind, fileInfo);
+	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
 	if ((ret = SendIndication(self, ind)))
@@ -1002,9 +1002,9 @@ out:
 }
 
 static int __stdcall
-ReqCloseFile(LPCWSTR fileName, PDOKAN_FILE_INFO fileInfo)
+ReqCloseFile(LPCWSTR fileName, PDOKAN_FILE_INFO dokanInfo)
 {
-	struct self *self = FromFileInfo(fileInfo);
+	struct self *self = FromDokanInfo(dokanInfo);
 	struct indication *ind;
 	struct parse_state ps;
 	int ret;
@@ -1015,7 +1015,7 @@ ReqCloseFile(LPCWSTR fileName, PDOKAN_FILE_INFO fileInfo)
 
 	/* fill indication */
 	IndAddString(ind, fileName);
-	IndAddFileInfo(ind, fileInfo);
+	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
 	if ((ret = SendIndication(self, ind)))
@@ -1062,9 +1062,9 @@ static int ParseReadResponse(struct self *self, struct indication *ind,
 
 static int __stdcall
 ReqReadFile(LPCWSTR fileName, LPVOID buffer, DWORD bufferLength,
-            LPDWORD readLength, LONGLONG offset, PDOKAN_FILE_INFO fileInfo)
+            LPDWORD readLength, LONGLONG offset, PDOKAN_FILE_INFO dokanInfo)
 {
-	struct self *self = FromFileInfo(fileInfo);
+	struct self *self = FromDokanInfo(dokanInfo);
 	struct indication *ind;
 	int ret;
 
@@ -1076,7 +1076,7 @@ ReqReadFile(LPCWSTR fileName, LPVOID buffer, DWORD bufferLength,
 	IndAddString(ind, fileName);
 	IndAddUInt(ind, bufferLength);
 	IndAddInt64(ind, &offset);
-	IndAddFileInfo(ind, fileInfo);
+	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
 	if ((ret = SendIndication(self, ind)))
@@ -1120,9 +1120,9 @@ badarg:
 
 static int __stdcall
 ReqWriteFile(LPCWSTR fileName, LPCVOID buffer, DWORD bytesToWrite,
-             LPDWORD bytesWritten, LONGLONG offset, PDOKAN_FILE_INFO fileInfo)
+             LPDWORD bytesWritten, LONGLONG offset, PDOKAN_FILE_INFO dokanInfo)
 {
-	struct self *self = FromFileInfo(fileInfo);
+	struct self *self = FromDokanInfo(dokanInfo);
 	struct indication *ind;
 	struct parse_state ps;
 	int ret;
@@ -1137,7 +1137,7 @@ ReqWriteFile(LPCWSTR fileName, LPCVOID buffer, DWORD bytesToWrite,
 	IndAddString(ind, fileName);
 	IndAddBuffer(ind, buffer, bytesToWrite);
 	IndAddInt64(ind, &offset);
-	IndAddFileInfo(ind, fileInfo);
+	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
 	if ((ret = SendIndication(self, ind)))
@@ -1155,9 +1155,9 @@ out:
 }
 
 static int __stdcall
-ReqFlushFileBuffers(LPCWSTR fileName, PDOKAN_FILE_INFO fileInfo)
+ReqFlushFileBuffers(LPCWSTR fileName, PDOKAN_FILE_INFO dokanInfo)
 {
-	struct self *self = FromFileInfo(fileInfo);
+	struct self *self = FromDokanInfo(dokanInfo);
 	struct indication *ind;
 	struct parse_state ps;
 	int ret;
@@ -1168,7 +1168,7 @@ ReqFlushFileBuffers(LPCWSTR fileName, PDOKAN_FILE_INFO fileInfo)
 
 	/* fill indication */
 	IndAddString(ind, fileName);
-	IndAddFileInfo(ind, fileInfo);
+	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
 	if ((ret = SendIndication(self, ind)))
@@ -1186,9 +1186,9 @@ out:
 }
 
 static int __stdcall
-ReqDeleteFile(LPCWSTR fileName, PDOKAN_FILE_INFO fileInfo)
+ReqDeleteFile(LPCWSTR fileName, PDOKAN_FILE_INFO dokanInfo)
 {
-	struct self *self = FromFileInfo(fileInfo);
+	struct self *self = FromDokanInfo(dokanInfo);
 	struct indication *ind;
 	struct parse_state ps;
 	int ret;
@@ -1199,7 +1199,7 @@ ReqDeleteFile(LPCWSTR fileName, PDOKAN_FILE_INFO fileInfo)
 
 	/* fill indication */
 	IndAddString(ind, fileName);
-	IndAddFileInfo(ind, fileInfo);
+	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
 	if ((ret = SendIndication(self, ind)))
@@ -1217,9 +1217,9 @@ out:
 }
 
 static int __stdcall
-ReqDeleteDirectory(LPCWSTR fileName, PDOKAN_FILE_INFO fileInfo)
+ReqDeleteDirectory(LPCWSTR fileName, PDOKAN_FILE_INFO dokanInfo)
 {
-	struct self *self = FromFileInfo(fileInfo);
+	struct self *self = FromDokanInfo(dokanInfo);
 	struct indication *ind;
 	struct parse_state ps;
 	int ret;
@@ -1230,7 +1230,7 @@ ReqDeleteDirectory(LPCWSTR fileName, PDOKAN_FILE_INFO fileInfo)
 
 	/* fill indication */
 	IndAddString(ind, fileName);
-	IndAddFileInfo(ind, fileInfo);
+	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
 	if ((ret = SendIndication(self, ind)))
@@ -1249,9 +1249,9 @@ out:
 
 static int __stdcall
 ReqMoveFile(LPCWSTR fileName, LPCWSTR newFileName, BOOL replaceIfExisting,
-            PDOKAN_FILE_INFO fileInfo)
+            PDOKAN_FILE_INFO dokanInfo)
 {
-	struct self *self = FromFileInfo(fileInfo);
+	struct self *self = FromDokanInfo(dokanInfo);
 	struct indication *ind;
 	struct parse_state ps;
 	int ret;
@@ -1264,7 +1264,7 @@ ReqMoveFile(LPCWSTR fileName, LPCWSTR newFileName, BOOL replaceIfExisting,
 	IndAddString(ind, fileName);
 	IndAddString(ind, newFileName);
 	IndAddBool(ind, replaceIfExisting);
-	IndAddFileInfo(ind, fileInfo);
+	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
 	if ((ret = SendIndication(self, ind)))
@@ -1282,9 +1282,9 @@ out:
 }
 
 static int __stdcall
-ReqSetEndOfFile(LPCWSTR fileName, LONGLONG offset, PDOKAN_FILE_INFO fileInfo)
+ReqSetEndOfFile(LPCWSTR fileName, LONGLONG offset, PDOKAN_FILE_INFO dokanInfo)
 {
-	struct self *self = FromFileInfo(fileInfo);
+	struct self *self = FromDokanInfo(dokanInfo);
 	struct indication *ind;
 	struct parse_state ps;
 	int ret;
@@ -1296,7 +1296,7 @@ ReqSetEndOfFile(LPCWSTR fileName, LONGLONG offset, PDOKAN_FILE_INFO fileInfo)
 	/* fill indication */
 	IndAddString(ind, fileName);
 	IndAddInt64(ind, &offset);
-	IndAddFileInfo(ind, fileInfo);
+	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
 	if ((ret = SendIndication(self, ind)))
@@ -1315,9 +1315,9 @@ out:
 
 static int __stdcall
 ReqSetAllocationSize(LPCWSTR fileName, LONGLONG allocSize,
-                     PDOKAN_FILE_INFO fileInfo)
+                     PDOKAN_FILE_INFO dokanInfo)
 {
-	struct self *self = FromFileInfo(fileInfo);
+	struct self *self = FromDokanInfo(dokanInfo);
 	struct indication *ind;
 	struct parse_state ps;
 	int ret;
@@ -1329,7 +1329,7 @@ ReqSetAllocationSize(LPCWSTR fileName, LONGLONG allocSize,
 	/* fill indication */
 	IndAddString(ind, fileName);
 	IndAddInt64(ind, &allocSize);
-	IndAddFileInfo(ind, fileInfo);
+	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
 	if ((ret = SendIndication(self, ind)))
