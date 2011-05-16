@@ -67,14 +67,14 @@ create_file(S, _From, FileName, _AccMode, _ShMode, CrDisp, _Flags, _DFI) ->
 					{reply, #dokan_reply_open{context=Ctx, is_directory=false, existed=true}, S3};
 
 				#file{} when CrDisp == ?CREATE_NEW ->
-					{reply, {error, -?ERROR_FILE_EXISTS}, S};
+					{reply, {error, ?ERROR_FILE_EXISTS}, S};
 
 				#dir{} when CrDisp == ?OPEN_EXISTING ->
 					{Ctx, S2} = handle_add(#handle{ino=Ino, parent=Parent, name=Name}, S),
 					{reply, #dokan_reply_open{context=Ctx, is_directory=true, existed=true}, S2};
 
 				#dir{} ->
-					{reply, {error, -?ERROR_ACCESS_DENIED}, S}
+					{reply, {error, ?ERROR_ACCESS_DENIED}, S}
 			end;
 
 		{stop, DirIno, Name} when (CrDisp == ?CREATE_ALWAYS) or
@@ -88,10 +88,10 @@ create_file(S, _From, FileName, _AccMode, _ShMode, CrDisp, _Flags, _DFI) ->
 			{reply, #dokan_reply_open{context=Ctx, is_directory=true, existed=false}, S2};
 
 		{stop, _, _} ->
-			{reply, {error, -?ERROR_ACCESS_DENIED}, S};
+			{reply, {error, ?ERROR_ACCESS_DENIED}, S};
 
 		error ->
-			{reply, {error, -?ERROR_FILE_NOT_FOUND}, S}
+			{reply, {error, ?ERROR_FILE_NOT_FOUND}, S}
 	end.
 
 
@@ -104,19 +104,19 @@ open_directory(S, _From, FileName, _DFI) ->
 					{Ctx, S2} = handle_add(#handle{ino=Ino, parent=Parent, name=Name}, S),
 					{reply, #dokan_reply_open{context=Ctx, is_directory=true, existed=true}, S2};
 				#file{} ->
-					{reply, {error, -?ERROR_ACCESS_DENIED}, S}
+					{reply, {error, ?ERROR_ACCESS_DENIED}, S}
 			end;
 		_ ->
-			{reply, {error, -?ERROR_PATH_NOT_FOUND}, S}
+			{reply, {error, ?ERROR_PATH_NOT_FOUND}, S}
 	end.
 
 
 create_directory(#state{vnodes=VNodes} = S, _From, FileName, _DFI) ->
 	case lookup(FileName, S) of
 		#dir{} ->
-			{reply, {error, -?ERROR_ALREADY_EXISTS}, S};
+			{reply, {error, ?ERROR_ALREADY_EXISTS}, S};
 		#file{} ->
-			{reply, {error, -?ERROR_ALREADY_EXISTS}, S};
+			{reply, {error, ?ERROR_ALREADY_EXISTS}, S};
 		{stop, DirIno, Name} ->
 			{Max, _} = gb_trees:largest(VNodes), Ino = Max+1,
 			VN2 = gb_trees:enter(Ino, #dir{listing=[]}, VNodes),
@@ -126,7 +126,7 @@ create_directory(#state{vnodes=VNodes} = S, _From, FileName, _DFI) ->
 			{reply, #dokan_reply_open{context=Ctx, is_directory=true, existed=false}, S2};
 
 		error ->
-			{reply, {error, -?ERROR_PATH_NOT_FOUND}, S}
+			{reply, {error, ?ERROR_PATH_NOT_FOUND}, S}
 	end.
 
 
@@ -205,7 +205,7 @@ read_file(S, _From, _FileName, Length, Offset, DFI) ->
 			{reply, binary:part(Data, InOffset, InLength), S};
 
 		_ ->
-			{reply, {error, -?ERROR_ACCESS_DENIED}, S}
+			{reply, {error, ?ERROR_ACCESS_DENIED}, S}
 	end.
 
 
@@ -224,7 +224,7 @@ write_file(#state{vnodes=VNodes} = S, _From, _FileName, Data, Offset, DFI) ->
 			{reply, {ok, size(Data)}, S2};
 
 		#dir{} ->
-			{reply, {error, -?ERROR_ACCESS_DENIED}, S}
+			{reply, {error, ?ERROR_ACCESS_DENIED}, S}
 	end.
 
 
@@ -235,7 +235,7 @@ delete_file(#state{vnodes=VNodes} = S, _From, _FileName, DFI) ->
 			NewFile = File#file{deleted=true},
 			{reply, ok, S#state{vnodes=gb_trees:update(Ino, NewFile, VNodes)}};
 		#dir{} ->
-			{reply, {error, -?ERROR_ACCESS_DENIED}, S}
+			{reply, {error, ?ERROR_ACCESS_DENIED}, S}
 	end.
 
 
@@ -246,9 +246,9 @@ delete_directory(#state{vnodes=VNodes} = S, _From, _FileName, DFI) ->
 			NewDir = Dir#dir{deleted=true},
 			{reply, ok, S#state{vnodes=gb_trees:update(Ino, NewDir, VNodes)}};
 		#dir{} ->
-			{reply, {error, -?ERROR_DIR_NOT_EMPTY}, S};
+			{reply, {error, ?ERROR_DIR_NOT_EMPTY}, S};
 		#file{} ->
-			{reply, {error, -?ERROR_ACCESS_DENIED}, S}
+			{reply, {error, ?ERROR_ACCESS_DENIED}, S}
 	end.
 
 
@@ -265,9 +265,9 @@ move_file(S, _From, _OldName, NewName, Replace, DFI) ->
 			OldType = element(1, gb_trees:get(Ino, VNodes)),
 			ExistType = element(1, gb_trees:get(ExistIno, VNodes)),
 			if
-				OldType =/= ExistType -> throw({reply, {error, -?ERROR_ACCESS_DENIED}, S});
-				ExistType =/= file -> throw({reply, {error, -?ERROR_ACCESS_DENIED}, S});
-				not Replace -> throw({reply, {error, -?ERROR_ACCESS_DENIED}, S});
+				OldType =/= ExistType -> throw({reply, {error, ?ERROR_ACCESS_DENIED}, S});
+				ExistType =/= file -> throw({reply, {error, ?ERROR_ACCESS_DENIED}, S});
+				not Replace -> throw({reply, {error, ?ERROR_ACCESS_DENIED}, S});
 				true -> ok
 			end,
 			VN1 = del_dir_entry(OldParent, OldPName, VNodes),
@@ -279,7 +279,7 @@ move_file(S, _From, _OldName, NewName, Replace, DFI) ->
 		{stop, NewParent, NewPName} ->
 			case lists:any(fun(C) -> C == $\\ end, NewPName) of
 				true ->
-					{reply, {error, -?ERROR_PATH_NOT_FOUND}, S};
+					{reply, {error, ?ERROR_PATH_NOT_FOUND}, S};
 				false ->
 					VN1 = del_dir_entry(OldParent, OldPName, VNodes),
 					VN2 = add_dir_entry(NewParent, NewPName, Ino, VN1),
@@ -287,7 +287,7 @@ move_file(S, _From, _OldName, NewName, Replace, DFI) ->
 			end;
 
 		error ->
-			{reply, {error, -?ERROR_PATH_NOT_FOUND}, S}
+			{reply, {error, ?ERROR_PATH_NOT_FOUND}, S}
 	end.
 
 
@@ -304,7 +304,7 @@ set_end_of_file(#state{vnodes=VNodes}=S, _From, _FileName, Offset, DFI) ->
 			{reply, ok, S#state{vnodes=gb_trees:update(Ino, NewFile, VNodes)}};
 
 		#dir{} ->
-			{reply, {error, -?ERROR_ACCESS_DENIED}, S}
+			{reply, {error, ?ERROR_ACCESS_DENIED}, S}
 	end.
 
 

@@ -556,8 +556,8 @@ static int ParseGenericResponse(struct parse_state *ps)
 			CHECK(ei_decode_atom(ps->buf, &ps->index, tag));
 			CHECK(strcmp(tag, "error"));
 			CHECK(ei_decode_long(ps->buf, &ps->index, &ret));
-			CHECK(ret >= 0);
-			return ret;
+			CHECK(ret <= 0);
+			return -ret;
 
 		default:
 			Abort(ps->drv);
@@ -1111,7 +1111,8 @@ static int ParseWriteResponse(struct parse_state *ps, LPDWORD bytesWritten)
 	} else if (!strcmp(tag, "error")) {
 		long ret;
 		CHECK(ei_decode_long(ps->buf, &ps->index, &ret));
-		return ret;
+		CHECK(ret <= 0);
+		return -ret;
 	}
 
 badarg:
