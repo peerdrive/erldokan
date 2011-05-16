@@ -1348,6 +1348,81 @@ out:
 	return ret;
 }
 
+static int __stdcall
+ReqSetFileAttributes(LPCWSTR fileName, DWORD fileAttributes,
+                     PDOKAN_FILE_INFO dokanInfo)
+{
+	struct self *self = FromDokanInfo(dokanInfo);
+	struct indication *ind;
+	struct parse_state ps;
+	int ret;
+
+	ind = AllocIndication(self, ATOM_SET_FILE_ATTRIBUTES);
+	if (!ind)
+		return -ERROR_OUTOFMEMORY;
+
+	/* fill indication */
+	IndAddString(ind, fileName);
+	IndAddUInt(ind, fileAttributes);
+	IndAddDokanInfo(ind, dokanInfo);
+	IndAddDone(ind);
+
+	if ((ret = SendIndication(self, ind)))
+		goto out;
+
+	/* parse response */
+	ret = InitParser(self, &ps, ind);
+	if (ret)
+		goto out;
+	ret = ParseGenericResponse(&ps);
+
+out:
+	FreeIndication(self, ind);
+	return ret;
+}
+
+static int __stdcall
+ReqSetFileTime(LPCWSTR fileName, CONST FILETIME *creationTime,
+               CONST FILETIME *lastAccessTime, CONST FILETIME *lastWriteTime,
+               PDOKAN_FILE_INFO dokanInfo)
+{
+	struct self *self = FromDokanInfo(dokanInfo);
+	struct indication *ind;
+	struct parse_state ps;
+	int ret;
+	LONGLONG ctime, atime, mtime;
+
+	ind = AllocIndication(self, ATOM_SET_FILE_TIME);
+	if (!ind)
+		return -ERROR_OUTOFMEMORY;
+
+	/* convert FILETIMEs to 64 bits */
+	ctime = ((LONGLONG)creationTime->dwHighDateTime << 32) | creationTime->dwLowDateTime;
+	atime = ((LONGLONG)lastAccessTime->dwHighDateTime << 32) | lastAccessTime->dwLowDateTime;
+	mtime = ((LONGLONG)lastWriteTime->dwHighDateTime << 32) | lastWriteTime->dwLowDateTime;
+
+	/* fill indication */
+	IndAddString(ind, fileName);
+	IndAddInt64(ind, &ctime);
+	IndAddInt64(ind, &atime);
+	IndAddInt64(ind, &mtime);
+	IndAddDokanInfo(ind, dokanInfo);
+	IndAddDone(ind);
+
+	if ((ret = SendIndication(self, ind)))
+		goto out;
+
+	/* parse response */
+	ret = InitParser(self, &ps, ind);
+	if (ret)
+		goto out;
+	ret = ParseGenericResponse(&ps);
+
+out:
+	FreeIndication(self, ind);
+	return ret;
+}
+
 static int ReplyOk(char **rbuf, int rlen)
 {
 	int i = 0;
@@ -1516,6 +1591,8 @@ static int Mount(struct self *self, char *buf, int len, char **rbuf, int rlen)
 		SUPPORTED_OP("read_file", ReadFile, ReqReadFile);
 		SUPPORTED_OP("set_allocation_size", SetAllocationSize, ReqSetAllocationSize);
 		SUPPORTED_OP("set_end_of_file", SetEndOfFile, ReqSetEndOfFile);
+		SUPPORTED_OP("set_file_attributes", SetFileAttributes, ReqSetFileAttributes);
+		SUPPORTED_OP("set_file_time", SetFileTime, ReqSetFileTime);
 		SUPPORTED_OP("write_file", WriteFile, ReqWriteFile);
 	}
 
