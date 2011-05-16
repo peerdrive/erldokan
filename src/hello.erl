@@ -85,7 +85,7 @@ create_file(S, _From, FileName, _AccMode, _ShMode, CrDisp, _Flags, _DFI) ->
 			VN3 = add_dir_entry(DirIno, Name, Ino, VN2),
 			Handle = #handle{ino=Ino, parent=DirIno, name=Name},
 			{Ctx, S2} = handle_add(Handle, S#state{vnodes=VN3}),
-			{reply, #dokan_reply_open{context=Ctx, is_directory=true, existed=false}, S2};
+			{reply, #dokan_reply_open{context=Ctx, is_directory=false, existed=false}, S2};
 
 		{stop, _, _} ->
 			{reply, {error, ?ERROR_FILE_NOT_FOUND}, S};
@@ -295,9 +295,12 @@ set_end_of_file(#state{vnodes=VNodes}=S, _From, _FileName, Offset, DFI) ->
 	Ino = get_ino(S, DFI),
 	case gb_trees:get(Ino, VNodes) of
 		#file{data=Data} = File ->
+			Size = size(Data),
 			NewFile = if
-				Offset > size(Data) ->
+				Offset < Size ->
 					File#file{data=binary:part(Data, 0, Offset)};
+				Offset > Size ->
+					File#file{data= <<Data/binary, 0:((Offset-Size)*8)>>};
 				true ->
 					File
 			end,
