@@ -25,17 +25,19 @@
 		 set_file_attributes/5, set_file_time/7]).
 -export([init/1, handle_info/2, terminate/2, code_change/3]).
 
--record(state, {vnodes, handles}).
+-record(state, {vnodes, handles, re}).
 -record(file, {data, attr=?FILE_ATTRIBUTE_NORMAL, ctime=0, atime=0, mtime=0, deleted=false}).
 -record(dir, {listing, deleted=false}).
 -record(handle, {ino, parent, name}).
 
 init(_Args) ->
+	{ok, Re} = re:compile(<<"\\\\"/utf8>>),
 	State = #state{
 		vnodes=gb_trees:from_orddict([
-			{0, #dir{listing=[{"text.txt", 1}]}},
+			{0, #dir{listing=[{<<"hello.txt"/utf8>>, 1}]}},
 			{1, #file{data= <<"Hello World...">>, ctime=get_time(), mtime=get_time()}}]),
-		handles=gb_trees:from_orddict([{0, undefined}])
+		handles=gb_trees:from_orddict([{0, undefined}]),
+		re = Re
 	},
 	{ok, State}.
 
@@ -153,7 +155,7 @@ find_files(#state{vnodes=VNodes} = S, _From, _Path, DFI) ->
 	#dir{listing=Dir} = get_vnode(S, DFI),
 	DirEntries = lists:map(
 		fun({Name, Ino}) ->
-			{unicode:characters_to_binary(Name), gb_trees:get(Ino, VNodes)}
+			{Name, gb_trees:get(Ino, VNodes)}
 		end,
 		Dir),
 	List = lists:foldl(
@@ -288,14 +290,9 @@ move_file(S, _From, _OldName, NewName, Replace, DFI) ->
 			{reply, ok, S#state{vnodes=VN4}};
 
 		{stop, NewParent, NewPName} ->
-			case lists:any(fun(C) -> C == $\\ end, NewPName) of
-				true ->
-					{reply, {error, ?ERROR_PATH_NOT_FOUND}, S};
-				false ->
-					VN1 = del_dir_entry(OldParent, OldPName, VNodes),
-					VN2 = add_dir_entry(NewParent, NewPName, Ino, VN1),
-					{reply, ok, S#state{vnodes=VN2}}
-			end;
+				VN1 = del_dir_entry(OldParent, OldPName, VNodes),
+			VN2 = add_dir_entry(NewParent, NewPName, Ino, VN1),
+			{reply, ok, S#state{vnodes=VN2}};
 
 		error ->
 			{reply, {error, ?ERROR_PATH_NOT_FOUND}, S}
@@ -405,8 +402,8 @@ get_vnode(#state{vnodes=VNodes} = S, DFI) ->
 	gb_trees:get(Ino, VNodes).
 
 
-lookup(BinName, #state{vnodes=VNodes} = S) ->
-	case walk(BinName, S) of
+lookup(Name, #state{vnodes=VNodes} = S) ->
+	case walk(Name, S) of
 		{ok, _, _, Ino} ->
 			gb_trees:get(Ino, VNodes);
 		Error ->
@@ -414,45 +411,39 @@ lookup(BinName, #state{vnodes=VNodes} = S) ->
 	end.
 
 
-walk(BinName, State) ->
-	case unicode:characters_to_list(BinName, utf8) of
-		{error, _, _} ->
-			error;
-		{incomplete, _, _} ->
-			error;
-		Name ->
-			do_walk(Name, 0, 0, "\\", State)
+walk(Name, #state{re=Re} = State) ->
+	if
+		Name == <<"\\"/utf8>> ->
+			{ok, 0, <<"\\"/utf8>>, 0};
+		true ->
+			% drop first empty string (Name always begins with a \)
+			[_ | SplitName] = re:split(Name, Re),
+			do_walk(SplitName, 0, 0, <<"\\"/utf8>>, State)
 	end.
 
 
-do_walk("", Ino, Parent, Name, _S) ->
+do_walk([], Ino, Parent, Name, _S) ->
 	{ok, Parent, Name, Ino};
 
-do_walk("\\", Ino, Parent, Name, _S) ->
-	{ok, Parent, Name, Ino};
-
-do_walk([$\\ | Path], DirIno, _, _, #state{vnodes=VNodes} = S) ->
-	{Name, Rest} = lists:splitwith(fun(C) -> C =/= $\\ end, Path),
+do_walk([Name | Rest], DirIno, _ParentIno, _DirName, #state{vnodes=VNodes} = S) ->
 	case gb_trees:get(DirIno, VNodes) of
 		#dir{listing=Dir} ->
 			case orddict:find(Name, Dir) of
 				{ok, Ino} ->
-					do_walk(Rest, Ino, DirIno, Path, S);
+					do_walk(Rest, Ino, DirIno, Name, S);
+
 				error ->
-					case lists:any(fun(C) -> C == $\\ end, Path) of
-						true ->
-							error; % invalid file name
-						false ->
-							{stop, DirIno, Path}
+					case Rest of
+						[] ->
+							{stop, DirIno, Name};
+						_ ->
+							error
 					end
 			end;
 
 		#file{} ->
 			error %% can't descend from a file
-	end;
-
-do_walk(_, _, _, _, _) ->
-	error.
+	end.
 
 
 get_time() ->
