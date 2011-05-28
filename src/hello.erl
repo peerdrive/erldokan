@@ -43,7 +43,7 @@ init(_Args) ->
 
 handle_info(Msg, State) ->
 	io:format("hello: handle_info(~p)~n", [Msg]),
-	{norepy, State}.
+	{noreply, State}.
 
 terminate(_Reason, _State) ->
 	ok.
@@ -180,7 +180,19 @@ find_files(#state{vnodes=VNodes} = S, _From, _Path, DFI) ->
 		end,
 		[],
 		DirEntries),
-	{reply, List, S}.
+	FullList = [
+		#dokan_reply_find{
+			file_attributes = ?FILE_ATTRIBUTE_DIRECTORY,
+			file_size = 0,
+			file_name = <<".">>
+		},
+		#dokan_reply_find{
+			file_attributes = ?FILE_ATTRIBUTE_DIRECTORY,
+			file_size = 0,
+			file_name = <<"..">>
+		}
+		| List],
+	{reply, FullList, S}.
 
 
 get_file_information(S, _From, _FileName, DFI) ->

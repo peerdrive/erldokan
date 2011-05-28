@@ -48,32 +48,33 @@
 %% CreateFile constants
 %%
 
-% dwCreationDisposition
--define(CREATE_NEW,        1).
--define(CREATE_ALWAYS,     2).
--define(OPEN_EXISTING,     3).
--define(OPEN_ALWAYS,       4).
--define(TRUNCATE_EXISTING, 5).
+% dwCreationDisposition          open  create   trunc
+-define(CREATE_NEW,        1). %         X
+-define(CREATE_ALWAYS,     2). %         X        X
+-define(OPEN_EXISTING,     3). %   X
+-define(OPEN_ALWAYS,       4). %   X     X
+-define(TRUNCATE_EXISTING, 5). %   X              X
 
 % dwDesiredAccess
--define(MAXIMUM_ALLOWED,  16#2000000).
--define(GENERIC_READ,     16#80000000).
--define(GENERIC_WRITE,    16#40000000).
--define(GENERIC_EXECUTE,  16#20000000).
--define(GENERIC_ALL,      16#10000000).
+-define(MAXIMUM_ALLOWED,           16#02000000).
 
--define(DELETE,                   16#00010000).
--define(READ_CONTROL,             16#00020000).
--define(WRITE_DAC,                16#00040000).
--define(WRITE_OWNER,              16#00080000).
--define(SYNCHRONIZE,              16#00100000).
--define(STANDARD_RIGHTS_REQUIRED, 16#000F0000).
--define(STANDARD_RIGHTS_READ,     ?READ_CONTROL).
--define(STANDARD_RIGHTS_WRITE,    ?READ_CONTROL).
--define(STANDARD_RIGHTS_EXECUTE,  ?READ_CONTROL).
--define(STANDARD_RIGHTS_ALL,      16#001F0000).
--define(SPECIFIC_RIGHTS_ALL,      16#0000FFFF).
--define(ACCESS_SYSTEM_SECURITY,   16#1000000).
+-define(GENERIC_READ,              16#80000000).
+-define(GENERIC_WRITE,             16#40000000).
+-define(GENERIC_EXECUTE,           16#20000000).
+-define(GENERIC_ALL,               16#10000000).
+
+-define(DELETE,                    16#00010000).
+-define(READ_CONTROL,              16#00020000).
+-define(WRITE_DAC,                 16#00040000).
+-define(WRITE_OWNER,               16#00080000).
+-define(SYNCHRONIZE,               16#00100000).
+-define(STANDARD_RIGHTS_REQUIRED,  16#000F0000).
+-define(STANDARD_RIGHTS_READ,      ?READ_CONTROL).
+-define(STANDARD_RIGHTS_WRITE,     ?READ_CONTROL).
+-define(STANDARD_RIGHTS_EXECUTE,   ?READ_CONTROL).
+-define(STANDARD_RIGHTS_ALL,       16#001F0000).
+-define(SPECIFIC_RIGHTS_ALL,       16#0000FFFF).
+-define(ACCESS_SYSTEM_SECURITY,    16#1000000).
 
 -define(FILE_LIST_DIRECTORY,       16#00000001).
 -define(FILE_READ_DATA,            16#00000001).

@@ -82,11 +82,11 @@ start(Name, Mod, Args, Options) ->
 
 start_link(Mod, Args, Options) ->
 	{DokanOpt, GenSrvOpt} = split_options(Options),
-	gen_server:start(?MODULE, {Mod, Args, DokanOpt}, GenSrvOpt).
+	gen_server:start_link(?MODULE, {Mod, Args, DokanOpt}, GenSrvOpt).
 
 start_link(Name, Mod, Args, Options) ->
 	{DokanOpt, GenSrvOpt} = split_options(Options),
-	gen_server:start(Name, ?MODULE, {Mod, Args, DokanOpt}, GenSrvOpt).
+	gen_server:start_link(Name, ?MODULE, {Mod, Args, DokanOpt}, GenSrvOpt).
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -183,7 +183,7 @@ code_change(OldVsn, #state{mod=Mod, state=State} = S, Extra) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 handle_request({Port, Req, Op, Args}, #state{mod=Mod, state=State} = S) ->
-	io:format("=> #~p ~p ~p~n", [Req, Op, Args]),
+	%io:format("=> #~p ~p ~p~n", [Req, Op, Args]),
 	From = {Port, Req},
 	Result = try
 		apply(Mod, Op, [State, From | Args])
@@ -212,7 +212,7 @@ reply({Port, Req}, Reply) when is_binary(Reply) ->
 		Status, Reply]);
 
 reply({Port, Req}, Reply) ->
-	io:format("<- #~p ~p~n", [Req, Reply]),
+	%io:format("<- #~p ~p~n", [Req, Reply]),
 	Status = term_to_binary(Reply),
 	port_command(Port, [<<Req:32/native-unsigned, (size(Status)):32/native-unsigned>>,
 		Status]).
