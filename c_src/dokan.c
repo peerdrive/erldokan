@@ -1423,6 +1423,207 @@ out:
 	return ret;
 }
 
+#define REPLY_DISK_SPACE "dokan_reply_diskspace"
+
+/*
+ * #dokan_reply_diskspace{} | {error, ErrNo}
+ */
+static int ParseDiskSpaceResponse(struct parse_state *ps,
+                                  ULONGLONG *bytesAvailable,
+                                  ULONGLONG *totalBytes,
+                                  ULONGLONG *totalFreeBytes)
+{
+	char tag[sizeof(REPLY_DISK_SPACE)];
+	int size, ret, type;
+
+	if (ei_decode_tuple_header(ps->buf, &ps->index, &size))
+		goto fail;
+	if (size != 4)
+		goto fail;
+
+	CHECK(ei_get_type(ps->buf, &ps->index, &type, &size));
+	CHECK(type != ERL_ATOM_EXT || size != sizeof(REPLY_DISK_SPACE)-1);
+	CHECK(ei_decode_atom(ps->buf, &ps->index, tag));
+	CHECK(strcmp(tag, REPLY_DISK_SPACE));
+
+	CHECK(ei_decode_ulonglong(ps->buf, &ps->index, bytesAvailable));
+	CHECK(ei_decode_ulonglong(ps->buf, &ps->index, totalBytes));
+	CHECK(ei_decode_ulonglong(ps->buf, &ps->index, totalFreeBytes));
+
+	return 0;
+
+fail:
+	RewindParser(ps);
+	ret = ParseGenericResponse(ps);
+	CHECK(ret >= 0);
+	return ret;
+
+badarg:
+	Abort(ps->drv);
+	return -ERROR_GEN_FAILURE;
+}
+
+
+static int __stdcall
+ReqGetDiskFreeSpace(PULONGLONG freeBytesAvailable, PULONGLONG totalNumberOfBytes,
+                    PULONGLONG totalNumberOfFreeBytes, PDOKAN_FILE_INFO dokanInfo)
+{
+	struct self *self = FromDokanInfo(dokanInfo);
+	struct indication *ind;
+	struct parse_state ps;
+	int ret;
+
+	ind = AllocIndication(self, ATOM_GET_DISK_FREE_SPACE);
+	if (!ind)
+		return -ERROR_OUTOFMEMORY;
+
+	IndAddDokanInfo(ind, dokanInfo);
+	IndAddDone(ind);
+
+	if ((ret = SendIndication(self, ind)))
+		goto out;
+
+	/* parse response */
+	ret = InitParser(self, &ps, ind);
+	if (ret)
+		goto out;
+	ret = ParseDiskSpaceResponse(&ps, freeBytesAvailable, totalNumberOfBytes,
+		totalNumberOfFreeBytes);
+
+out:
+	FreeIndication(self, ind);
+	return ret;
+
+}
+
+
+#define REPLY_VOLUME_INFO "dokan_reply_volinfo"
+
+/*
+ * #dokan_reply_volinfo{} | {error, ErrNo}
+ */
+static int ParseVolInfoResponse(struct parse_state *ps, LPWSTR volumeNameBuffer,
+	DWORD volumeNameSize, LPDWORD volumeSerialNumber,
+	LPDWORD maximumComponentLength, LPDWORD fileSystemFlags,
+	LPWSTR fileSystemNameBuffer, DWORD fileSystemNameSize)
+{
+	char tag[sizeof(REPLY_VOLUME_INFO)];
+	int size, ret, type;
+	long len;
+	char *buf;
+
+	if (ei_decode_tuple_header(ps->buf, &ps->index, &size))
+		goto fail;
+	if (size != 6)
+		goto fail;
+
+	CHECK(ei_get_type(ps->buf, &ps->index, &type, &size));
+	CHECK(type != ERL_ATOM_EXT || size != sizeof(REPLY_VOLUME_INFO)-1);
+	CHECK(ei_decode_atom(ps->buf, &ps->index, tag));
+	CHECK(strcmp(tag, REPLY_VOLUME_INFO));
+
+	/* volume_name */
+	CHECK(ei_get_type(ps->buf, &ps->index, &type, &size));
+	CHECK(type != ERL_BINARY_EXT);
+	buf = driver_alloc(size);
+	if (!buf)
+		return -ERROR_OUTOFMEMORY;
+	CHECK(ei_decode_binary(ps->buf, &ps->index, buf, &len));
+	size = MultiByteToWideChar(CP_UTF8, 0, buf, len, volumeNameBuffer,
+		volumeNameSize-1);
+	volumeNameBuffer[size] = 0;
+	driver_free(buf);
+
+	/* volume_serial_number */
+	CHECK(ei_decode_ulong(ps->buf, &ps->index, volumeSerialNumber));
+	/* maximum_component_length */
+	CHECK(ei_decode_ulong(ps->buf, &ps->index, maximumComponentLength));
+	/* file_system_flags */
+	CHECK(ei_decode_ulong(ps->buf, &ps->index, fileSystemFlags));
+
+	/* file_system_name */
+	CHECK(ei_get_type(ps->buf, &ps->index, &type, &size));
+	CHECK(type != ERL_BINARY_EXT);
+	buf = driver_alloc(size);
+	if (!buf)
+		return -ERROR_OUTOFMEMORY;
+	CHECK(ei_decode_binary(ps->buf, &ps->index, buf, &len));
+	size = MultiByteToWideChar(CP_UTF8, 0, buf, len, fileSystemNameBuffer,
+		fileSystemNameSize-1);
+	fileSystemNameBuffer[size] = 0;
+	driver_free(buf);
+
+
+	return 0;
+
+fail:
+	RewindParser(ps);
+	ret = ParseGenericResponse(ps);
+	CHECK(ret >= 0);
+	return ret;
+
+badarg:
+	Abort(ps->drv);
+	return -ERROR_GEN_FAILURE;
+}
+
+static int __stdcall
+ReqGetVolumeInformation(LPWSTR volumeNameBuffer, DWORD volumeNameSize,
+                        LPDWORD volumeSerialNumber, LPDWORD maximumComponentLength,
+                        LPDWORD fileSystemFlags, LPWSTR fileSystemNameBuffer,
+	                    DWORD fileSystemNameSize, PDOKAN_FILE_INFO dokanInfo)
+{
+	struct self *self = FromDokanInfo(dokanInfo);
+	struct indication *ind;
+	struct parse_state ps;
+	int ret;
+
+	ind = AllocIndication(self, ATOM_GET_VOLUME_INFORMATION);
+	if (!ind)
+		return -ERROR_OUTOFMEMORY;
+
+	IndAddDokanInfo(ind, dokanInfo);
+	IndAddDone(ind);
+
+	if ((ret = SendIndication(self, ind)))
+		goto out;
+
+	/* parse response */
+	ret = InitParser(self, &ps, ind);
+	if (ret)
+		goto out;
+	ret = ParseVolInfoResponse(&ps, volumeNameBuffer, volumeNameSize,
+		volumeSerialNumber, maximumComponentLength, fileSystemFlags,
+		fileSystemNameBuffer, fileSystemNameSize);
+
+out:
+	FreeIndication(self, ind);
+	return ret;
+}
+
+static int __stdcall
+ReqUnmount(PDOKAN_FILE_INFO dokanInfo)
+{
+	struct self *self = FromDokanInfo(dokanInfo);
+	struct indication *ind;
+
+	printf("unmount\n");
+
+	ind = AllocIndication(self, ATOM_UNMOUNT);
+	if (!ind)
+		return -ERROR_OUTOFMEMORY;
+
+	IndAddDokanInfo(ind, dokanInfo);
+	IndAddDone(ind);
+
+	SendIndication(self, ind);
+	FreeIndication(self, ind);
+
+	/* Return value is ignored */
+	return 0;
+}
+
+
 static int ReplyOk(char **rbuf, int rlen)
 {
 	int i = 0;
@@ -1483,6 +1684,7 @@ static int Mount(struct self *self, char *buf, int len, char **rbuf, int rlen)
 	self->dokanArgs.GlobalContext = (unsigned long)self;
 	self->dokanArgs.Version = DOKAN_VERSION;
 	self->dokanArgs.ThreadCount = 0;
+	self->dokanArgs.Options = DOKAN_OPTION_KEEP_ALIVE;
 	if (self->dokanArgs.MountPoint)
 		driver_free((void *)self->dokanArgs.MountPoint);
 	self->dokanArgs.MountPoint = driver_alloc(sizeof(DEFAULT_MOUNT_POINT));
@@ -1511,7 +1713,8 @@ static int Mount(struct self *self, char *buf, int len, char **rbuf, int rlen)
 
 		if (!strcmp(atom, "mountpoint")) {
 			int type, len;
-			long x;
+			long mb_len;
+			char *tmp_buf;
 
 			if (ei_get_type(buf, &index, &type, &len))
 				goto badarg;
@@ -1523,12 +1726,26 @@ static int Mount(struct self *self, char *buf, int len, char **rbuf, int rlen)
 				self->dokanArgs.MountPoint = NULL;
 			}
 
-			self->dokanArgs.MountPoint = driver_alloc(len+2);
-			if (!self->dokanArgs.MountPoint)
+			tmp_buf = driver_alloc(len+1);
+			if (!tmp_buf)
 				return ReplyError(rbuf, rlen, "enomem");
-			memset((void *)self->dokanArgs.MountPoint, 0, len+2);
-			if (ei_decode_binary(buf, &index, (void *)self->dokanArgs.MountPoint, &x))
+			if (ei_decode_binary(buf, &index, tmp_buf, &mb_len)) {
+				driver_free(tmp_buf);
+				printf("dec\n");
 				goto badarg;
+			}
+			tmp_buf[len] = 0;
+
+			mb_len = MultiByteToWideChar(CP_UTF8, 0, tmp_buf, len+1, NULL, 0);
+			self->dokanArgs.MountPoint = driver_alloc(mb_len);
+			if (!self->dokanArgs.MountPoint) {
+				driver_free(tmp_buf);
+				return ReplyError(rbuf, rlen, "enomem");
+			}
+
+			MultiByteToWideChar(CP_UTF8, 0, tmp_buf, len+1,
+				(LPWSTR)self->dokanArgs.MountPoint, mb_len);
+			driver_free(tmp_buf);
 		} else if (!strcmp(atom, "threads")) {
 			long count;
 			if (ei_decode_long(buf, &index, &count))
@@ -1585,7 +1802,9 @@ static int Mount(struct self *self, char *buf, int len, char **rbuf, int rlen)
 		SUPPORTED_OP("find_files", FindFiles, ReqFindFiles);
 		SUPPORTED_OP("find_files_with_pattern", FindFilesWithPattern, ReqFindFilesWithPattern);
 		SUPPORTED_OP("flush_file_buffers", FlushFileBuffers, ReqFlushFileBuffers);
+		SUPPORTED_OP("get_disk_free_space", GetDiskFreeSpace, ReqGetDiskFreeSpace);
 		SUPPORTED_OP("get_file_information", GetFileInformation, ReqGetFileInformation);
+		SUPPORTED_OP("get_volume_information", GetVolumeInformation, ReqGetVolumeInformation);
 		SUPPORTED_OP("move_file", MoveFile, ReqMoveFile);
 		SUPPORTED_OP("open_directory", OpenDirectory, ReqOpenDirectory);
 		SUPPORTED_OP("read_file", ReadFile, ReqReadFile);
@@ -1593,6 +1812,7 @@ static int Mount(struct self *self, char *buf, int len, char **rbuf, int rlen)
 		SUPPORTED_OP("set_end_of_file", SetEndOfFile, ReqSetEndOfFile);
 		SUPPORTED_OP("set_file_attributes", SetFileAttributes, ReqSetFileAttributes);
 		SUPPORTED_OP("set_file_time", SetFileTime, ReqSetFileTime);
+		SUPPORTED_OP("unmount", Unmount, ReqUnmount);
 		SUPPORTED_OP("write_file", WriteFile, ReqWriteFile);
 	}
 

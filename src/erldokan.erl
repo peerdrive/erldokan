@@ -53,7 +53,9 @@ behaviour_info_dokan_cb() ->
 	{find_files, 4},
 	{find_files_with_pattern, 5},
 	{flush_file_buffers, 4},
+	{get_disk_free_space, 3},
 	{get_file_information, 4},
+	{get_volume_information, 3},
 	{move_file, 6},
 	{open_directory, 4},
 	{read_file, 6},
@@ -61,14 +63,12 @@ behaviour_info_dokan_cb() ->
 	{set_end_of_file, 5},
 	{set_file_attributes, 5},
 	{set_file_time, 7},
+	{unmount, 3},
 	{write_file, 6},
 
 	%% TODO...
-	{get_disk_free_space, 0},
-	{get_volume_information, 0},
 	{lock_file, 0},
-	{unlock_file, 0},
-	{unmount, 0}
+	{unlock_file, 0}
 	].
 
 

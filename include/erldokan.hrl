@@ -133,6 +133,35 @@
 	file_name
 }).
 
+-record(dokan_reply_diskspace, {
+	available_bytes,
+	total_bytes,
+	total_free_bytes
+}).
+
+% Possible file_system_flags. See GetVolumeInformation()
+-define(FILE_CASE_SENSITIVE_SEARCH,        16#00000001).
+-define(FILE_CASE_PRESERVED_NAMES,         16#00000002).
+-define(FILE_UNICODE_ON_DISK,              16#00000004).
+-define(FILE_PERSISTENT_ACLS,              16#00000008).
+-define(FILE_FILE_COMPRESSION,             16#00000010).
+-define(FILE_VOLUME_QUOTAS,                16#00000020).
+-define(FILE_SUPPORTS_SPARSE_FILES,        16#00000040).
+-define(FILE_SUPPORTS_REPARSE_POINTS,      16#00000080).
+-define(FILE_SUPPORTS_REMOTE_STORAGE,      16#00000100).
+-define(FS_LFN_APIS,                       16#00004000).
+-define(FILE_VOLUME_IS_COMPRESSED,         16#00008000).
+-define(FILE_SUPPORTS_OBJECT_IDS,          16#00010000).
+-define(FILE_SUPPORTS_ENCRYPTION,          16#00020000).
+-define(FILE_NAMED_STREAMS,                16#00040000).
+-define(FILE_READ_ONLY_VOLUME,             16#00080000).
+-define(FILE_SEQUENTIAL_WRITE_ONCE,        16#00100000).
+-define(FILE_SUPPORTS_TRANSACTIONS,        16#00200000).
+-define(FILE_SUPPORTS_HARD_LINKS,          16#00400000).
+-define(FILE_SUPPORTS_EXTENDED_ATTRIBUTES, 16#00800000).
+-define(FILE_SUPPORTS_OPEN_BY_FILE_ID,     16#01000000).
+-define(FILE_SUPPORTS_USN_JOURNAL,         16#02000000).
+
 -record(dokan_reply_volinfo, {
 	volume_name,
 	volume_serial_number,

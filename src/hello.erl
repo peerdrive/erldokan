@@ -22,7 +22,8 @@
 -export([create_file/8, open_directory/4, find_files/4, create_directory/4,
          get_file_information/4, read_file/6, write_file/6, delete_file/4,
          delete_directory/4, close_file/4, move_file/6, set_end_of_file/5,
-		 set_file_attributes/5, set_file_time/7]).
+		 set_file_attributes/5, set_file_time/7, get_disk_free_space/3,
+		 get_volume_information/3, unmount/3]).
 -export([init/1, handle_info/2, terminate/2, code_change/3]).
 
 -record(state, {vnodes, handles, re}).
@@ -364,6 +365,34 @@ set_file_time(#state{vnodes=VNodes}=S, _From, _FileName, CTime, ATime, MTime, DF
 		#dir{} ->
 			{reply, {error, ?ERROR_ACCESS_DENIED}, S}
 	end.
+
+
+get_disk_free_space(S, _From, _DFI) ->
+	Reply = #dokan_reply_diskspace{
+		available_bytes  = 1*1024*1024*1024,
+		total_bytes      = 1*1024*1024*1024,
+		total_free_bytes = 1*1024*1024*1024
+	},
+	{reply, Reply, S}.
+
+
+get_volume_information(S, _From, _DFI) ->
+	Reply = #dokan_reply_volinfo{
+		volume_name              = <<"Hello">>,
+		volume_serial_number     = 16#deadbeef,
+		maximum_component_length = 256,
+		file_system_flags        = ?FILE_CASE_SENSITIVE_SEARCH bor
+		                           ?FILE_CASE_PRESERVED_NAMES bor
+		                           ?FILE_UNICODE_ON_DISK,
+		file_system_name         = <<"ErlDokan">>
+	},
+	{reply, Reply, S}.
+
+
+unmount(S, _From, _DFI) ->
+	io:format("Got unmount. Goodbye...~n"),
+	{reply, ok, S}.
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
