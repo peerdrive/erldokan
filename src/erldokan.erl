@@ -44,31 +44,29 @@ behaviour_info(_Other) ->
 
 behaviour_info_dokan_cb() ->
 	[
-	{cleanup, 4},
-	{close_file, 4},
-	{create_directory, 4},
-	{create_file, 8},
-	{delete_directory, 4},
-	{delete_file, 4},
-	{find_files, 4},
-	{find_files_with_pattern, 5},
-	{flush_file_buffers, 4},
-	{get_disk_free_space, 3},
-	{get_file_information, 4},
-	{get_volume_information, 3},
-	{move_file, 6},
-	{open_directory, 4},
-	{read_file, 6},
-	{set_allocation_size, 5},
-	{set_end_of_file, 5},
-	{set_file_attributes, 5},
-	{set_file_time, 7},
-	{unmount, 3},
-	{write_file, 6},
-
-	%% TODO...
-	{lock_file, 0},
-	{unlock_file, 0}
+		{cleanup, 4},
+		{close_file, 4},
+		{create_directory, 4},
+		{create_file, 8},
+		{delete_directory, 4},
+		{delete_file, 4},
+		{find_files, 4},
+		{find_files_with_pattern, 5},
+		{flush_file_buffers, 4},
+		{get_disk_free_space, 3},
+		{get_file_information, 4},
+		{get_volume_information, 3},
+		{lock_file, 6},
+		{move_file, 6},
+		{open_directory, 4},
+		{read_file, 6},
+		{set_allocation_size, 5},
+		{set_end_of_file, 5},
+		{set_file_attributes, 5},
+		{set_file_time, 7},
+		{unlock_file, 6},
+		{unmount, 3},
+		{write_file, 6}
 	].
 
 

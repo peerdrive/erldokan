@@ -198,8 +198,14 @@ static int IOVecGetOffset(ErlIOVec *ev, size_t off, char **base, size_t *size)
 {
 	int i = 1;
 
-	if (off >= ev->size)
-		return -1;
+	if (off >= ev->size) {
+		if (off == ev->size) {
+			/* special handling for zero size binary replies */
+			*size = 0;
+			return 0;
+		} else
+			return -1;
+	}
 
 	while (i < ev->vsize) {
 		if (off < ev->iov[i].iov_len) {
@@ -1056,7 +1062,9 @@ static int ParseReadResponse(struct self *self, struct indication *ind,
 	if (bufferLength < size)
 		size = bufferLength; /* Or reject? */
 
-	memcpy(buffer, base, size);
+	if (size)
+		memcpy(buffer, base, size);
+
 	*readLength = size;
 	return 0;
 }
@@ -1623,6 +1631,74 @@ ReqUnmount(PDOKAN_FILE_INFO dokanInfo)
 	return 0;
 }
 
+static int __stdcall
+ReqLockFile(LPCWSTR fileName, LONGLONG byteOffset, LONGLONG length,
+            PDOKAN_FILE_INFO dokanInfo)
+{
+	struct self *self = FromDokanInfo(dokanInfo);
+	struct indication *ind;
+	struct parse_state ps;
+	int ret;
+
+	ind = AllocIndication(self, ATOM_LOCK_FILE);
+	if (!ind)
+		return -ERROR_OUTOFMEMORY;
+
+	/* fill indication */
+	IndAddString(ind, fileName);
+	IndAddInt64(ind, &byteOffset);
+	IndAddInt64(ind, &length);
+	IndAddDokanInfo(ind, dokanInfo);
+	IndAddDone(ind);
+
+	if ((ret = SendIndication(self, ind)))
+		goto out;
+
+	/* parse response */
+	ret = InitParser(self, &ps, ind);
+	if (ret)
+		goto out;
+	ret = ParseGenericResponse(&ps);
+
+out:
+	FreeIndication(self, ind);
+	return ret;
+}
+
+static int __stdcall
+ReqUnlockFile(LPCWSTR fileName, LONGLONG byteOffset, LONGLONG length,
+            PDOKAN_FILE_INFO dokanInfo)
+{
+	struct self *self = FromDokanInfo(dokanInfo);
+	struct indication *ind;
+	struct parse_state ps;
+	int ret;
+
+	ind = AllocIndication(self, ATOM_UNLOCK_FILE);
+	if (!ind)
+		return -ERROR_OUTOFMEMORY;
+
+	/* fill indication */
+	IndAddString(ind, fileName);
+	IndAddInt64(ind, &byteOffset);
+	IndAddInt64(ind, &length);
+	IndAddDokanInfo(ind, dokanInfo);
+	IndAddDone(ind);
+
+	if ((ret = SendIndication(self, ind)))
+		goto out;
+
+	/* parse response */
+	ret = InitParser(self, &ps, ind);
+	if (ret)
+		goto out;
+	ret = ParseGenericResponse(&ps);
+
+out:
+	FreeIndication(self, ind);
+	return ret;
+}
+
 
 static int ReplyOk(char **rbuf, int rlen)
 {
@@ -1805,6 +1881,7 @@ static int Mount(struct self *self, char *buf, int len, char **rbuf, int rlen)
 		SUPPORTED_OP("get_disk_free_space", GetDiskFreeSpace, ReqGetDiskFreeSpace);
 		SUPPORTED_OP("get_file_information", GetFileInformation, ReqGetFileInformation);
 		SUPPORTED_OP("get_volume_information", GetVolumeInformation, ReqGetVolumeInformation);
+		SUPPORTED_OP("lock_file", LockFile, ReqLockFile);
 		SUPPORTED_OP("move_file", MoveFile, ReqMoveFile);
 		SUPPORTED_OP("open_directory", OpenDirectory, ReqOpenDirectory);
 		SUPPORTED_OP("read_file", ReadFile, ReqReadFile);
@@ -1812,6 +1889,7 @@ static int Mount(struct self *self, char *buf, int len, char **rbuf, int rlen)
 		SUPPORTED_OP("set_end_of_file", SetEndOfFile, ReqSetEndOfFile);
 		SUPPORTED_OP("set_file_attributes", SetFileAttributes, ReqSetFileAttributes);
 		SUPPORTED_OP("set_file_time", SetFileTime, ReqSetFileTime);
+		SUPPORTED_OP("unlock_file", UnlockFile, ReqUnlockFile);
 		SUPPORTED_OP("unmount", Unmount, ReqUnmount);
 		SUPPORTED_OP("write_file", WriteFile, ReqWriteFile);
 	}
