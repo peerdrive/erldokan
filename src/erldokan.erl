@@ -95,8 +95,7 @@ start_link(Name, Mod, Args, Options) ->
 init({Mod, Args, Options}) ->
 	process_flag(trap_exit, true),
 	SupportedOps = scan_module(Mod),
-	SearchDir = filename:join([filename:dirname(code:which(?MODULE)), "..", "priv"]),
-	case erl_ddll:load(SearchDir, ?DRV_NAME) of
+	case erl_ddll:load(code:priv_dir(?MODULE), ?DRV_NAME) of
 		ok -> ok;
 		{error, already_loaded} -> ok;
 		LoadErr -> throw({stop, LoadErr})
