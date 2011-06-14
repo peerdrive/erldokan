@@ -1813,7 +1813,7 @@ static int Mount(struct self *self, char *buf, int len, char **rbuf, int rlen)
 			tmp_buf[len] = 0;
 
 			mb_len = MultiByteToWideChar(CP_UTF8, 0, tmp_buf, len+1, NULL, 0);
-			self->dokanArgs.MountPoint = driver_alloc(mb_len);
+			self->dokanArgs.MountPoint = driver_alloc(mb_len*2);
 			if (!self->dokanArgs.MountPoint) {
 				driver_free(tmp_buf);
 				return ReplyError(rbuf, rlen, "enomem");
