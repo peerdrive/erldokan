@@ -1,3 +1,2 @@
-*.beam
-*.dll
+*.o
 cscope.out

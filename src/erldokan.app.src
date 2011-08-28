@@ -3,8 +3,7 @@
 	erldokan,
 	[
 		{description, "ErlDokan"},
-		{vsn, "0.1.0"},
-		{modules, [erldokan]},
+		{vsn, "1.0.0"},
 		{applications, [kernel, stdlib]}
 	]
 }.

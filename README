@@ -1,6 +1,19 @@
 ErlDokan -- Erlang binding for Dokan
 
-Dokan (http://dokan-dev.net/en/) is a user mode file system library for
-Windows. This Erlang application provides the bindings to create a user mode
-file system with Erlang using Dokan.
+Dokan is a user mode file system library for Windows. This Erlang application
+provides the bindings to create a user mode file system with Erlang using
+Dokan.
+
+== Building ==
+
+Dependencies:
+
+	* MinGW (http://www.mingw.org)
+	* Dokan Library (http://dokan-dev.net/en/)
+	* Rebar (https://github.com/basho/rebar)
+
+Make sure that rebar and gcc are in your %PATH%. The Dokan library is assumed
+to be installed in %ProgramFiles%\Dokan\DokanLibrary\. To compile just do a
+
+	$ rebar compile
 
