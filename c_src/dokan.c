@@ -16,7 +16,11 @@
  * along with ErlDokan. If not, see <http://www.gnu.org/licenses/>.
  */
 
-//#define NDEBUG
+#define __WIN32__
+
+#include <erl_driver.h>
+#include <ei.h>
+#include <dokan.h>
 
 #include <windows.h>
 #include <winbase.h>
@@ -24,10 +28,6 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
-
-#include <erl_driver.h>
-#include <ei.h>
-#include <dokan.h>
 
 #define DEFAULT_MOUNT_POINT L"M:\\"
 #define IND_TERM_SIZE 48
@@ -2180,19 +2180,29 @@ badarg:
 }
 
 static ErlDrvEntry dokan_driver_entry = {
-	.driver_name     = "erldokan_drv",
-	.init            = init,
-	.start           = start,
-	.stop            = stop,
-	.call            = call,
-	.outputv         = outputv,
-	.ready_input     = ready_input,
-	.ready_output    = ready_output,
-	.extended_marker = ERL_DRV_EXTENDED_MARKER,
-	.major_version   = ERL_DRV_EXTENDED_MAJOR_VERSION,
-	.minor_version   = ERL_DRV_EXTENDED_MINOR_VERSION,
-	.driver_flags    = ERL_DRV_FLAG_USE_PORT_LOCKING,
-	.stop_select     = stop_select,
+	init,                           /* .init            */
+	start,                          /* .start           */
+	stop,                           /* .stop            */
+	NULL,                           /* .output          */
+	ready_input,                    /* .ready_input     */
+	ready_output,                   /* .ready_output    */
+	"erldokan_drv",                 /* .driver_name     */
+	NULL,                           /* .finish          */
+	NULL,                           /* .handle          */
+	NULL,                           /* .control         */
+	NULL,                           /* .timeout         */
+	outputv,                        /* .outputv         */
+	NULL,                           /* .ready_async     */
+	NULL,                           /* .flush           */
+	call,                           /* .call            */
+	NULL,                           /* .event           */
+	ERL_DRV_EXTENDED_MARKER,        /* .extended_marker */
+	ERL_DRV_EXTENDED_MAJOR_VERSION, /* .major_version   */
+	ERL_DRV_EXTENDED_MINOR_VERSION, /* .minor_version   */
+	ERL_DRV_FLAG_USE_PORT_LOCKING,  /* .driver_flags    */
+	NULL,                           /* .handle2         */
+	NULL,                           /* .process_exit    */
+	stop_select                     /* .stop_select     */
 };
 
 DRIVER_INIT(erldokan_drv)
