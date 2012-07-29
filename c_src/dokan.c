@@ -29,6 +29,11 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#if ERL_DRV_EXTENDED_MAJOR_VERSION < 2
+#define ErlDrvSizeT int
+#define ErlDrvSSizeT int
+#endif
+
 #define DEFAULT_MOUNT_POINT L"M:\\"
 #define IND_TERM_SIZE 48
 #define IND_IOV_SIZE 4
@@ -491,7 +496,7 @@ static int SendIndication(struct self *self, struct indication *ind)
 
 	while (ind->status > 0) {
 		if (WaitForSingleObject(ind->event, INFINITE) != WAIT_OBJECT_0)
-			return -GetLastError();
+			return -(int)GetLastError();
 	}
 
 	return ind->status;
@@ -620,7 +625,7 @@ static int ParseOpenResponse(struct parse_state *ps, ULONG64 *ctx, UCHAR *isDir)
 	if (ei_decode_boolean(ps->buf, &ps->index, &ret))
 		CHECK(ParseUndefined(ps));
 	CHECK(ei_decode_boolean(ps->buf, &ps->index, &existed));
-	*isDir = ret;
+	*isDir = !!ret;
 
 	return existed ? ERROR_ALREADY_EXISTS : 0;
 
@@ -771,16 +776,16 @@ static int ParseFFResponse(struct parse_state *ps, PFillFindData fillFindData,
 		CHECK(ei_decode_ulong(ps->buf, &ps->index, &findData.dwFileAttributes));
 
 		CHECK(ei_decode_ulonglong(ps->buf, &ps->index, &tmp));
-		findData.ftCreationTime.dwLowDateTime = tmp;
+		findData.ftCreationTime.dwLowDateTime = (DWORD)tmp;
 		findData.ftCreationTime.dwHighDateTime = tmp >> 32;
 		CHECK(ei_decode_ulonglong(ps->buf, &ps->index, &tmp));
-		findData.ftLastAccessTime.dwLowDateTime = tmp;
+		findData.ftLastAccessTime.dwLowDateTime = (DWORD)tmp;
 		findData.ftLastAccessTime.dwHighDateTime = tmp >> 32;
 		CHECK(ei_decode_ulonglong(ps->buf, &ps->index, &tmp));
-		findData.ftLastWriteTime.dwLowDateTime = tmp;
+		findData.ftLastWriteTime.dwLowDateTime = (DWORD)tmp;
 		findData.ftLastWriteTime.dwHighDateTime = tmp >> 32;
 		CHECK(ei_decode_ulonglong(ps->buf, &ps->index, &tmp));
-		findData.nFileSizeLow = tmp;
+		findData.nFileSizeLow = (DWORD)tmp;
 		findData.nFileSizeHigh = tmp >> 32;
 
 		CHECK(ei_get_type(ps->buf, &ps->index, &type, &size));
@@ -910,25 +915,25 @@ static int ParseFileInfoResponse(struct parse_state *ps,
 	CHECK(ei_decode_ulong(ps->buf, &ps->index, &fileInfo->dwFileAttributes));
 
 	CHECK(ei_decode_ulonglong(ps->buf, &ps->index, &tmp));
-	fileInfo->ftCreationTime.dwLowDateTime = tmp;
+	fileInfo->ftCreationTime.dwLowDateTime = (DWORD)tmp;
 	fileInfo->ftCreationTime.dwHighDateTime = tmp >> 32;
 	CHECK(ei_decode_ulonglong(ps->buf, &ps->index, &tmp));
-	fileInfo->ftLastAccessTime.dwLowDateTime = tmp;
+	fileInfo->ftLastAccessTime.dwLowDateTime = (DWORD)tmp;
 	fileInfo->ftLastAccessTime.dwHighDateTime = tmp >> 32;
 	CHECK(ei_decode_ulonglong(ps->buf, &ps->index, &tmp));
-	fileInfo->ftLastWriteTime.dwLowDateTime = tmp;
+	fileInfo->ftLastWriteTime.dwLowDateTime = (DWORD)tmp;
 	fileInfo->ftLastWriteTime.dwHighDateTime = tmp >> 32;
 
 	CHECK(ei_decode_ulong(ps->buf, &ps->index, &fileInfo->dwVolumeSerialNumber));
 
 	CHECK(ei_decode_ulonglong(ps->buf, &ps->index, &tmp));
-	fileInfo->nFileSizeLow = tmp;
+	fileInfo->nFileSizeLow = (DWORD)tmp;
 	fileInfo->nFileSizeHigh = tmp >> 32;
 
 	CHECK(ei_decode_ulong(ps->buf, &ps->index, &fileInfo->nNumberOfLinks));
 
 	CHECK(ei_decode_ulonglong(ps->buf, &ps->index, &tmp));
-	fileInfo->nFileIndexLow = tmp;
+	fileInfo->nFileIndexLow = (DWORD)tmp;
 	fileInfo->nFileIndexHigh = tmp >> 32;
 
 	return 0;
@@ -1826,7 +1831,7 @@ static int Mount(struct self *self, char *buf, int len, char **rbuf, int rlen)
 			long count;
 			if (ei_decode_long(buf, &index, &count))
 				goto badarg;
-			self->dokanArgs.ThreadCount = count;
+			self->dokanArgs.ThreadCount = (USHORT)count;
 		} else if (!strcmp(atom, "debug_output")) {
 			if (ei_decode_atom(buf, &index, atom))
 				goto badarg;
@@ -2039,8 +2044,9 @@ static void stop_select(ErlDrvEvent event, void *reserved)
 #define DRV_CTRL_MOUNT   0
 #define DRV_CTRL_UNMOUNT 1
 
-static int call(ErlDrvData handle, unsigned int command, char *buf, int len,
-                char **rbuf, int rlen, unsigned int *flags)
+static ErlDrvSSizeT call(ErlDrvData handle, unsigned int command, char *buf,
+                         ErlDrvSizeT len, char **rbuf, ErlDrvSizeT rlen,
+						 unsigned int *flags)
 {
 	struct self *self = (struct self *)handle;
 
