@@ -8,12 +8,13 @@ Dokan.
 
 Dependencies:
 
-	* MinGW (http://www.mingw.org)
+	* MSVC compiler (e.g. from Visual Studio 2010 Express)
 	* Dokan Library (http://dokan-dev.net/en/)
 	* Rebar (https://github.com/basho/rebar)
 
-Make sure that rebar and gcc are in your %PATH%. The Dokan library is assumed
-to be installed in %ProgramFiles%\Dokan\DokanLibrary\. To compile just do a
+Start a Visual Studio shell (or execute vcvarsall.bat) and make sure that
+Erlang and rebar are in your %PATH%. The Dokan library is assumed to be
+installed in %ProgramFiles%\Dokan\DokanLibrary\. To compile just do a
 
 	$ rebar compile
 
