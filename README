@@ -18,3 +18,18 @@ installed in %ProgramFiles%\Dokan\DokanLibrary\. To compile just do a
 
 	$ rebar compile
 
+== Compiler and Erlang versions ==
+
+It is essential that the erldokan library and the Erlang emulator are built
+against the same MSVCRT lib (C run time library) version:
+
+  R14: MSVCR80.dll (Visual Studio 2005)
+  R15: MSVCR100.dll (Visual Stutio 2010)
+
+Even though mixing the versions is generally possible it is known to hang the
+emulator when being run as a service, that is without console. The root cause
+is that each version of the C runtime library has its own state and
+initialization and loading the erldokan_drv.dll with another runtime version
+than the emulator triggers a deadlock on Windows XP. On Windows 7 it doesn't
+seem to cause any problems, though.
+
