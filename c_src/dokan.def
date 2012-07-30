@@ -1,5 +1,0 @@
-; Workaround to make MinGW linker happy
-
-IMPORTS
-ntdll.dll._allshl
-
