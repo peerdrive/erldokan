@@ -193,7 +193,7 @@ static void IOVecFree(ErlIOVec *ev)
 	int i;
 
 	for (i=1; i<ev->vsize; i++)
-		driver_binary_dec_refc(ev->binv[i]);
+		driver_free_binary(ev->binv[i]);
 
 	ev->vsize = 0;
 	ev->size = 0;
