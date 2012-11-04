@@ -3,7 +3,7 @@
 	erldokan,
 	[
 		{description, "ErlDokan"},
-		{vsn, "1.0.0"},
+		{vsn, git},
 		{applications, [kernel, stdlib]}
 	]
 }.
