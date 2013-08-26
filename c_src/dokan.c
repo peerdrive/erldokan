@@ -24,6 +24,7 @@
 
 #include <windows.h>
 #include <winbase.h>
+#include <aclapi.h>
 #include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -95,6 +96,9 @@ struct self {
 	DOKAN_OPTIONS    dokanArgs;
 	ErlDrvTid        dokanThread;
 	int              dokanResult;
+
+	PSECURITY_DESCRIPTOR dummySecDesc;
+	DWORD                dummySecDescLen;
 };
 
 struct parse_state {
@@ -1704,6 +1708,24 @@ out:
 	return ret;
 }
 
+static int __stdcall
+DummyGetFileSecurity(LPCWSTR fileName, PSECURITY_INFORMATION securityInformation,
+                     PSECURITY_DESCRIPTOR securityDescriptor, ULONG bufferLength,
+                     PULONG lengthNeeded, PDOKAN_FILE_INFO dokanInfo)
+{
+	struct self *self = FromDokanInfo(dokanInfo);
+
+	if (lengthNeeded)
+		*lengthNeeded = self->dummySecDescLen;
+
+	if (bufferLength >= self->dummySecDescLen) {
+		memcpy(securityDescriptor, self->dummySecDesc, self->dummySecDescLen);
+		return 0;
+	} else {
+		return -ERROR_INSUFFICIENT_BUFFER;
+	}
+}
+
 
 static int ReplyOk(char **rbuf, int rlen)
 {
@@ -1870,6 +1892,7 @@ static int Mount(struct self *self, char *buf, int len, char **rbuf, int rlen)
 		goto badarg;
 
 	memset(&self->dokanOps, 0, sizeof(self->dokanOps));
+	self->dokanOps.GetFileSecurity = DummyGetFileSecurity;
 	for (i=0; i<size; i++) {
 		if (ei_decode_atom(buf, &index, atom))
 			goto badarg;
@@ -1929,9 +1952,47 @@ static int init(void)
 	return 0;
 }
 
+static int createDummySecDesc(struct self *self)
+{
+	PSECURITY_DESCRIPTOR absSd;
+
+	absSd = (PSECURITY_DESCRIPTOR) driver_alloc(SECURITY_DESCRIPTOR_MIN_LENGTH);
+	if (!absSd)
+		return -1;
+	if (!InitializeSecurityDescriptor(absSd, SECURITY_DESCRIPTOR_REVISION))
+		goto err_init_sd;
+
+	/* Set a NULL DACL -> allow everything */
+	SetSecurityDescriptorDacl(absSd, TRUE, NULL, FALSE);
+
+	self->dummySecDescLen = 0;
+	MakeSelfRelativeSD(absSd, NULL, &self->dummySecDescLen);
+	self->dummySecDesc = (PSECURITY_DESCRIPTOR) driver_alloc(self->dummySecDescLen);
+	if (!self->dummySecDesc)
+		goto err_alloc_sd;
+
+	if (!MakeSelfRelativeSD(absSd, self->dummySecDesc, &self->dummySecDescLen))
+		goto err_make_rel;
+
+	if (!IsValidSecurityDescriptor(self->dummySecDesc))
+		goto err_make_rel;
+
+	driver_free(absSd);
+	return 0;
+
+err_make_rel:
+	driver_free(self->dummySecDesc);
+err_alloc_sd:
+err_init_sd:
+	driver_free(absSd);
+	return -1;
+}
+
 static ErlDrvData start(ErlDrvPort port, char* cmd)
 {
 	struct self *self = driver_alloc(sizeof(struct self));
+	if (!self)
+		goto err_alloc_self;
 
 	memset(self, 0, sizeof(*self));
 	self->port = port;
@@ -1939,6 +2000,9 @@ static ErlDrvData start(ErlDrvPort port, char* cmd)
 	QueueInit(&self->indRespQ);
 	QueueInit(&self->indFreeQ);
 	QueueInit(&self->indLaundryQ);
+
+	if (createDummySecDesc(self))
+		goto err_init_sd;
 
 	self->outputEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 	if (!self->outputEvent)
@@ -1964,11 +2028,14 @@ err_event2:
 	driver_select(port, (ErlDrvEvent)self->outputEvent,
 	              ERL_DRV_WRITE | ERL_DRV_USE, 0);
 err_event1:
+	driver_free(self->dummySecDesc);
+err_init_sd:
 	QueueDestroy(&self->indLaundryQ);
 	QueueDestroy(&self->indFreeQ);
 	QueueDestroy(&self->indRespQ);
 	QueueDestroy(&self->indSendQ);
 	driver_free(self);
+err_alloc_self:
 	return ERL_DRV_ERROR_GENERAL;
 }
 
@@ -2033,6 +2100,7 @@ static void stop(ErlDrvData handle)
 	QueueDestroy(&self->indFreeQ);
 	QueueDestroy(&self->indRespQ);
 	QueueDestroy(&self->indSendQ);
+	driver_free(self->dummySecDesc);
 	driver_free(self);
 }
 
