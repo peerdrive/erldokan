@@ -486,8 +486,10 @@ static void DisposeIndication(struct indication *ind)
 	driver_free(ind);
 }
 
-static int SendIndication(struct self *self, struct indication *ind)
+static int SendIndication(struct self *self, struct indication *ind,
+                          PDOKAN_FILE_INFO fileInfo)
 {
+	DWORD timeout = 5000; /* default Dokan request timeout is 15s */
 	ind->status = 1;
 
 	QueueLock(&self->indSendQ);
@@ -499,8 +501,18 @@ static int SendIndication(struct self *self, struct indication *ind)
 	SetEvent(self->outputEvent);
 
 	while (ind->status > 0) {
-		if (WaitForSingleObject(ind->event, INFINITE) != WAIT_OBJECT_0)
+		switch (WaitForSingleObject(ind->event, timeout)) {
+		case WAIT_OBJECT_0:
+			break;
+		case WAIT_TIMEOUT:
+			/* Extend timeout to 1 minute but refresh after 30s */
+			DokanResetTimeout(60000, fileInfo);
+			timeout = 30000;
+			break;
+		case WAIT_FAILED:
+		default:
 			return -(int)GetLastError();
+		}
 	}
 
 	return ind->status;
@@ -666,7 +678,7 @@ ReqCreateFile(LPCWSTR fileName, DWORD accessMode, DWORD shareMode,
 	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
-	if ((ret = SendIndication(self, ind)))
+	if ((ret = SendIndication(self, ind, dokanInfo)))
 		goto out;
 
 	/* parse response */
@@ -697,7 +709,7 @@ ReqOpenDirectory(LPCWSTR fileName, PDOKAN_FILE_INFO dokanInfo)
 	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
-	if ((ret = SendIndication(self, ind)))
+	if ((ret = SendIndication(self, ind, dokanInfo)))
 		goto out;
 
 	/* parse response */
@@ -728,7 +740,7 @@ ReqCreateDirectory(LPCWSTR fileName, PDOKAN_FILE_INFO dokanInfo)
 	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
-	if ((ret = SendIndication(self, ind)))
+	if ((ret = SendIndication(self, ind, dokanInfo)))
 		goto out;
 
 	/* parse response */
@@ -847,7 +859,7 @@ ReqFindFiles(LPCWSTR fileName, PFillFindData fillFindData,
 	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
-	if ((ret = SendIndication(self, ind)))
+	if ((ret = SendIndication(self, ind, dokanInfo)))
 		goto out;
 
 	/* parse response */
@@ -880,7 +892,7 @@ ReqFindFilesWithPattern(LPCWSTR fileName, LPCWSTR searchPattern,
 	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
-	if ((ret = SendIndication(self, ind)))
+	if ((ret = SendIndication(self, ind, dokanInfo)))
 		goto out;
 
 	/* parse response */
@@ -972,7 +984,7 @@ ReqGetFileInformation(LPCWSTR fileName,
 	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
-	if ((ret = SendIndication(self, ind)))
+	if ((ret = SendIndication(self, ind, dokanInfo)))
 		goto out;
 
 	/* parse response */
@@ -1003,7 +1015,7 @@ ReqCleanup(LPCWSTR fileName, PDOKAN_FILE_INFO dokanInfo)
 	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
-	if ((ret = SendIndication(self, ind)))
+	if ((ret = SendIndication(self, ind, dokanInfo)))
 		goto out;
 
 	/* parse response */
@@ -1034,7 +1046,7 @@ ReqCloseFile(LPCWSTR fileName, PDOKAN_FILE_INFO dokanInfo)
 	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
-	if ((ret = SendIndication(self, ind)))
+	if ((ret = SendIndication(self, ind, dokanInfo)))
 		goto out;
 
 	/* parse response */
@@ -1097,7 +1109,7 @@ ReqReadFile(LPCWSTR fileName, LPVOID buffer, DWORD bufferLength,
 	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
-	if ((ret = SendIndication(self, ind)))
+	if ((ret = SendIndication(self, ind, dokanInfo)))
 		goto out;
 
 	/* parse response */
@@ -1159,7 +1171,7 @@ ReqWriteFile(LPCWSTR fileName, LPCVOID buffer, DWORD bytesToWrite,
 	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
-	if ((ret = SendIndication(self, ind)))
+	if ((ret = SendIndication(self, ind, dokanInfo)))
 		goto out;
 
 	/* parse response */
@@ -1190,7 +1202,7 @@ ReqFlushFileBuffers(LPCWSTR fileName, PDOKAN_FILE_INFO dokanInfo)
 	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
-	if ((ret = SendIndication(self, ind)))
+	if ((ret = SendIndication(self, ind, dokanInfo)))
 		goto out;
 
 	/* parse response */
@@ -1221,7 +1233,7 @@ ReqDeleteFile(LPCWSTR fileName, PDOKAN_FILE_INFO dokanInfo)
 	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
-	if ((ret = SendIndication(self, ind)))
+	if ((ret = SendIndication(self, ind, dokanInfo)))
 		goto out;
 
 	/* parse response */
@@ -1252,7 +1264,7 @@ ReqDeleteDirectory(LPCWSTR fileName, PDOKAN_FILE_INFO dokanInfo)
 	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
-	if ((ret = SendIndication(self, ind)))
+	if ((ret = SendIndication(self, ind, dokanInfo)))
 		goto out;
 
 	/* parse response */
@@ -1286,7 +1298,7 @@ ReqMoveFile(LPCWSTR fileName, LPCWSTR newFileName, BOOL replaceIfExisting,
 	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
-	if ((ret = SendIndication(self, ind)))
+	if ((ret = SendIndication(self, ind, dokanInfo)))
 		goto out;
 
 	/* parse response */
@@ -1318,7 +1330,7 @@ ReqSetEndOfFile(LPCWSTR fileName, LONGLONG offset, PDOKAN_FILE_INFO dokanInfo)
 	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
-	if ((ret = SendIndication(self, ind)))
+	if ((ret = SendIndication(self, ind, dokanInfo)))
 		goto out;
 
 	/* parse response */
@@ -1351,7 +1363,7 @@ ReqSetAllocationSize(LPCWSTR fileName, LONGLONG allocSize,
 	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
-	if ((ret = SendIndication(self, ind)))
+	if ((ret = SendIndication(self, ind, dokanInfo)))
 		goto out;
 
 	/* parse response */
@@ -1384,7 +1396,7 @@ ReqSetFileAttributes(LPCWSTR fileName, DWORD fileAttributes,
 	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
-	if ((ret = SendIndication(self, ind)))
+	if ((ret = SendIndication(self, ind, dokanInfo)))
 		goto out;
 
 	/* parse response */
@@ -1426,7 +1438,7 @@ ReqSetFileTime(LPCWSTR fileName, CONST FILETIME *creationTime,
 	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
-	if ((ret = SendIndication(self, ind)))
+	if ((ret = SendIndication(self, ind, dokanInfo)))
 		goto out;
 
 	/* parse response */
@@ -1497,7 +1509,7 @@ ReqGetDiskFreeSpace(PULONGLONG freeBytesAvailable, PULONGLONG totalNumberOfBytes
 	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
-	if ((ret = SendIndication(self, ind)))
+	if ((ret = SendIndication(self, ind, dokanInfo)))
 		goto out;
 
 	/* parse response */
@@ -1602,7 +1614,7 @@ ReqGetVolumeInformation(LPWSTR volumeNameBuffer, DWORD volumeNameSize,
 	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
-	if ((ret = SendIndication(self, ind)))
+	if ((ret = SendIndication(self, ind, dokanInfo)))
 		goto out;
 
 	/* parse response */
@@ -1633,7 +1645,7 @@ ReqUnmount(PDOKAN_FILE_INFO dokanInfo)
 	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
-	SendIndication(self, ind);
+	SendIndication(self, ind, dokanInfo);
 	FreeIndication(self, ind);
 
 	/* Return value is ignored */
@@ -1660,7 +1672,7 @@ ReqLockFile(LPCWSTR fileName, LONGLONG byteOffset, LONGLONG length,
 	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
-	if ((ret = SendIndication(self, ind)))
+	if ((ret = SendIndication(self, ind, dokanInfo)))
 		goto out;
 
 	/* parse response */
@@ -1694,7 +1706,7 @@ ReqUnlockFile(LPCWSTR fileName, LONGLONG byteOffset, LONGLONG length,
 	IndAddDokanInfo(ind, dokanInfo);
 	IndAddDone(ind);
 
-	if ((ret = SendIndication(self, ind)))
+	if ((ret = SendIndication(self, ind, dokanInfo)))
 		goto out;
 
 	/* parse response */
